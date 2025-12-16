@@ -99,25 +99,31 @@
   }
 
   /* Hiding Configuration Steps */
-  div[key="step0"],
-  div[key="step1"] {
+  .step-structure,
+  .step-goal {
     display: none !important;
   }
 
   /* Solution View Formatting */
-  div[key="step2"] {
+  .step-solution {
     border: none !important;
     margin: 0 !important;
     padding: 20px 0 !important;
   }
 
-  /* Hide the "3. Clues Generated" and target text in print */
-  div[key="step2"]>div:first-child {
+  /* Hide the "3. Clues Generated" title but keep target */
+  .print-hide {
     display: none !important;
   }
 
+  /* Ensure all clues are visible/dark in print */
+  .clue-row {
+    opacity: 1 !important;
+    color: black !important;
+  }
+
   /* Hide the Reroll button container if it shows */
-  div[key="step2"]>div:last-child {
+  .step-solution>div:last-child {
     display: none !important;
   }
 

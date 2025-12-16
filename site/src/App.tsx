@@ -391,6 +391,7 @@ function App() {
   const renderStructureStep = () => (
     <div
       key="step0"
+      className="step-structure" // Added for print
       ref={(el) => { if (el) stepRefs.current[0] = el; }}
       style={{
         backgroundColor: '#2a2a35',
@@ -403,7 +404,7 @@ function App() {
       onClick={() => activeStep !== 0 && jumpToStep(0)}
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, color: '#fff' }}>1. Structure</h3>
+        <h3 className="step-header" style={{ margin: 0, color: '#fff' }}>1. Structure</h3>
         {activeStep !== 0 && <div style={{ color: '#aaa' }}>{numCats} Categories, {numItems} Items</div>}
       </div>
 
@@ -468,6 +469,7 @@ function App() {
   const renderGoalStep = () => (
     <div
       key="step1"
+      className="step-goal" // Added for print
       ref={(el) => { if (el) stepRefs.current[1] = el; }}
       onClick={() => jumpToStep(1)}
       style={{
@@ -619,6 +621,7 @@ function App() {
     return (
       <div
         key="step2"
+        className="step-solution" // Added for print
         ref={(el) => { if (el) stepRefs.current[2] = el; }}
         style={{
           backgroundColor: '#2a2a35',
@@ -630,7 +633,7 @@ function App() {
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h3 style={{ margin: 0, color: '#10b981' }}>3. Clues Generated!</h3>
+            <h3 className="print-hide" style={{ margin: 0, color: '#10b981' }}>3. Clues Generated!</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em', marginTop: '5px' }}>
               Target: Find <strong>{categories[targetCat2Idx]?.id}</strong> for <strong>{categories[targetCat1Idx]?.values[targetVal1Idx]}</strong> ({categories[targetCat1Idx]?.id})
             </div>
@@ -687,6 +690,7 @@ function App() {
             return (
               <div
                 key={i}
+                className="clue-row" // Added for print
                 onClick={() => setSelectedStep(i)}
                 style={{
                   padding: '15px 20px',
