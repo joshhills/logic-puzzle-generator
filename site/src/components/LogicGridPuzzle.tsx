@@ -79,7 +79,7 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                             {cat.values.map((val: string | number, valIndex: number) => {
                                 const active = isHeaderHighlighted('col', i, valIndex);
                                 return (
-                                    <div key={String(val)} style={{
+                                    <div key={String(val)} className="header-cell" style={{
                                         width: `${cellSize}px`,
                                         writingMode: 'vertical-rl',
                                         transform: 'rotate(180deg)',
@@ -134,7 +134,7 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                 {rowCat.values.map((v: string | number, vIndex: number) => {
                                     const active = isHeaderHighlighted('row', rowIndex, vIndex);
                                     return (
-                                        <div key={String(v)} style={{
+                                        <div key={String(v)} className="header-cell" style={{
                                             height: `${cellSize}px`,
                                             display: 'flex',
                                             alignItems: 'center',

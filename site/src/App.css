@@ -128,16 +128,15 @@
   }
 
   /* Grid & Table Specifics */
-  table {
-    border-collapse: collapse !important;
-    width: 100% !important;
+  .grid-cell,
+  .header-cell {
+    border: 1px solid #000 !important;
   }
 
-  th,
-  td {
-    border: 1px solid #000 !important;
-    /* Force thin black borders */
-    background-color: white !important;
+  /* Force exact colors (backgrounds etc) */
+  body {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
   }
 
   /* Clue List improvements for print */

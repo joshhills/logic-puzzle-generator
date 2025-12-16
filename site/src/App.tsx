@@ -767,7 +767,7 @@ function App() {
 
         {/* Top: Fixed Grid Visualization */}
         <div style={{ padding: '20px', flex: '0 0 auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderBottom: '1px solid #333', overflow: 'auto', position: 'relative', zIndex: 10, backgroundColor: '#111' }}>
-          <div style={{ position: 'absolute', top: '10px', right: '10px', color: '#666', fontSize: '0.8em', textTransform: 'uppercase' }}>
+          <div className="print-hide" style={{ position: 'absolute', top: '10px', right: '10px', color: '#666', fontSize: '0.8em', textTransform: 'uppercase' }}>
             {puzzle ? (selectedStep === -1 ? 'Solution View' : (selectedStep === -2 ? 'Start Setup' : 'Step Preview')) : 'Preview Mode'}
           </div>
           {displayGrid && (
@@ -798,7 +798,7 @@ function App() {
 
         {/* Bottom: Scrollable Accordion Flow (Natural Page Scroll) */}
         <div style={{ padding: '40px 10%' }}>
-          <div style={{ marginBottom: '20px', color: '#666', textTransform: 'uppercase', letterSpacing: '2px', fontSize: '0.8em' }}>Configuration Steps</div>
+          <div className="print-hide" style={{ marginBottom: '20px', color: '#666', textTransform: 'uppercase', letterSpacing: '2px', fontSize: '0.8em' }}>Configuration Steps</div>
           {renderSteps()}
 
           {/* Spacer */}

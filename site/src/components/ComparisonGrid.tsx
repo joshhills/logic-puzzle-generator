@@ -178,6 +178,7 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                     return (
                         <div
                             key={`${rowVal}-${colVal}`}
+                            className="grid-cell"
                             onMouseEnter={() => {
                                 if (onHover) onHover(rowValIndex, colValIndex, rowVal, colVal);
                             }}
