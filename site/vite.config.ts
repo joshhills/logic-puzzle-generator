@@ -10,4 +10,5 @@ export default defineConfig({
       '@logic': path.resolve(__dirname, '../src'),
     },
   },
+  base: '/logic-puzzle-generator/',
 })

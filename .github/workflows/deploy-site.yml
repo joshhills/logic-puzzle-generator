@@ -1,0 +1,46 @@
+name: Deploy Site to Pages
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "site/**"
+      - "src/**" # Re-deploy if core logic changes
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          
+      # Install root dependencies (if any needed for src compilation, though site/package.json should handle its own env)
+      # But since site imports ../src, if src imports libraries, they must be resolvable.
+      # Currently root package.json has NO runtime dependencies (only devDependencies), so this is safe for now.
+      # If we added deps later, we'd need to install them.
+      
+      - name: Install Site Dependencies
+        working-directory: ./site
+        run: npm ci
+
+      - name: Build
+        working-directory: ./site
+        run: npm run build
+
+      - name: Deploy
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: site/dist # The folder the action should deploy.
+          branch: gh-pages # The branch the action should deploy to.
