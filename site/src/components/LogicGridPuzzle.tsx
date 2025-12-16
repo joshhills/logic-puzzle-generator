@@ -2,12 +2,30 @@ import React from 'react';
 import { LogicGrid, CategoryConfig } from '../../../src/index';
 import { ComparisonGrid } from './ComparisonGrid';
 
+interface HoverState {
+    gridRow: number;
+    gridCol: number;
+    rowValIndex: number;
+    colValIndex: number;
+    rowCatId: string;
+    colCatId: string;
+    rowVal: string | number;
+    colVal: string | number;
+}
+
 interface LogicGridPuzzleProps {
     categories: CategoryConfig[];
     grid: LogicGrid;
+    targetFact?: {
+        category1Id: string;
+        value1: string;
+        category2Id: string;
+    };
 }
 
-export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid }) => {
+export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact }) => {
+    const [activeHover, setActiveHover] = React.useState<HoverState | null>(null);
+
     if (!categories || categories.length < 2) return <div>Invalid Categories</div>;
 
     // 1. Setup Axes
@@ -40,32 +58,48 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
     const cellSize = 40; // match ComparisonGrid
     const labelSize = 100;
 
+    const isHeaderHighlighted = (axis: 'row' | 'col', catIndex: number, valIndex: number) => {
+        if (!activeHover) return false;
+        if (axis === 'col') {
+            return activeHover.gridCol === catIndex && activeHover.colValIndex === valIndex;
+        } else {
+            return activeHover.gridRow === catIndex && activeHover.rowValIndex === valIndex;
+        }
+    };
+
     return (
-        <div style={{ display: 'inline-block', padding: '20px', backgroundColor: '#fff', color: '#333', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
+        <div style={{ display: 'inline-block' }}>
             <div style={{ display: 'grid', gridTemplateColumns: `${labelSize}px repeat(${topCategories.length}, auto)` }}>
                 {/* Header Row */}
                 <div /* Top-Left Corner (Empty) */ />
-                {topCategories.map(cat => (
+                {topCategories.map((cat, i) => (
                     <div key={`header-${cat.id}`} style={{ textAlign: 'center', marginBottom: '8px' }}>
                         <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>{cat.id}</div>
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
-                            {cat.values.map((val: string | number) => (
-                                <div key={String(val)} style={{
-                                    width: `${cellSize}px`,
-                                    writingMode: 'vertical-rl',
-                                    transform: 'rotate(180deg)',
-                                    height: '80px', // More space for text
-                                    fontSize: '0.8em',
-                                    display: 'flex',
-                                    alignItems: 'center', // Centers text in the 'strip'
-                                    justifyContent: 'flex-start', // Starts text at the 'top' (which is bottom due to rotation)
-                                    // Actually with 180 rotation:
-                                    // 'flex-start' is visual top (pre-rotation). Rotated 180 -> visual bottom.
-                                    // Let's try 'flex-start' logic.
-                                }}>
-                                    <span style={{ paddingBottom: '4px' }}>{val}</span>
-                                </div>
-                            ))}
+                            {cat.values.map((val: string | number, valIndex: number) => {
+                                const active = isHeaderHighlighted('col', i, valIndex);
+                                return (
+                                    <div key={String(val)} style={{
+                                        width: `${cellSize}px`,
+                                        writingMode: 'vertical-rl',
+                                        transform: 'rotate(180deg)',
+                                        height: '80px', // More space for text
+                                        fontSize: '0.8em',
+                                        display: 'flex',
+                                        alignItems: 'center', // Centers text in the 'strip'
+                                        justifyContent: 'flex-start', // Starts text at the 'top' (which is bottom due to rotation)
+                                        // Actually with 180 rotation:
+                                        // 'flex-start' is visual top (pre-rotation). Rotated 180 -> visual bottom.
+                                        // Let's try 'flex-start' logic.
+                                        backgroundColor: active ? '#e0f2fe' : 'transparent',
+                                        color: active ? '#000' : 'inherit',
+                                        fontWeight: active ? 'bold' : 'normal',
+                                        borderRadius: '4px'
+                                    }}>
+                                        <span style={{ paddingBottom: '4px' }}>{val}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 ))}
@@ -97,16 +131,24 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
 
                             {/* Values Stack */}
                             <div style={{ fontSize: '0.8em', color: '#666', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingTop: '2px' }}>
-                                {rowCat.values.map((v: string | number) => (
-                                    <div key={String(v)} style={{
-                                        height: `${cellSize}px`,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'flex-end'
-                                    }}>
-                                        {v}
-                                    </div>
-                                ))}
+                                {rowCat.values.map((v: string | number, vIndex: number) => {
+                                    const active = isHeaderHighlighted('row', rowIndex, vIndex);
+                                    return (
+                                        <div key={String(v)} style={{
+                                            height: `${cellSize}px`,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'flex-end',
+                                            backgroundColor: active ? '#e0f2fe' : 'transparent',
+                                            color: active ? '#000' : 'inherit',
+                                            fontWeight: active ? 'bold' : 'normal',
+                                            paddingRight: '4px',
+                                            borderRadius: '4px'
+                                        }}>
+                                            {v}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
 
@@ -204,7 +246,36 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
 
                             return (
                                 <div key={`grid-${rowCat.id}-${colCat.id}`} style={{ padding: '0px', lineHeight: 0, fontSize: 0 }}>
-                                    <ComparisonGrid grid={grid} rowCategory={rowCat} colCategory={colCat} />
+                                    <ComparisonGrid
+                                        grid={grid}
+                                        rowCategory={rowCat}
+                                        colCategory={colCat}
+
+                                        // Layout Coords
+                                        gridIndexRow={rowIndex}
+                                        gridIndexCol={colIndex}
+
+                                        // Hover State
+                                        activeHover={activeHover}
+                                        onHover={(rIdx, cIdx, rVal, cVal) => {
+                                            if (rIdx === undefined) {
+                                                setActiveHover(null);
+                                            } else {
+                                                setActiveHover({
+                                                    gridRow: rowIndex,
+                                                    gridCol: colIndex,
+                                                    rowValIndex: rIdx!,
+                                                    colValIndex: cIdx!,
+                                                    rowCatId: rowCat.id,
+                                                    colCatId: colCat.id,
+                                                    rowVal: rVal!,
+                                                    colVal: cVal!
+                                                });
+                                            }
+                                        }}
+
+                                        targetFact={targetFact}
+                                    />
                                 </div>
                             );
                         })}

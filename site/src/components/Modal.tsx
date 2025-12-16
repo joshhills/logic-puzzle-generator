@@ -1,0 +1,71 @@
+
+import React from 'react';
+
+interface ModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+    onConfirm: () => void;
+    title: string;
+    message: string;
+}
+
+export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, onConfirm, title, message }) => {
+    if (!isOpen) return null;
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+        }}>
+            <div style={{
+                backgroundColor: '#2a2a35',
+                padding: '25px',
+                borderRadius: '12px',
+                width: '90%',
+                maxWidth: '400px',
+                border: '1px solid #444',
+                boxShadow: '0 10px 30px rgba(0,0,0,0.5)'
+            }}>
+                <h3 style={{ margin: '0 0 15px 0', color: '#fff', fontSize: '1.2em' }}>{title}</h3>
+                <p style={{ margin: '0 0 25px 0', color: '#ccc', lineHeight: '1.5' }}>{message}</p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                    <button
+                        onClick={onClose}
+                        style={{
+                            padding: '10px 20px',
+                            backgroundColor: 'transparent',
+                            color: '#ccc',
+                            border: '1px solid #555',
+                            borderRadius: '6px',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={() => { onConfirm(); onClose(); }}
+                        style={{
+                            padding: '10px 20px',
+                            backgroundColor: '#ef4444',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        Confirm
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};

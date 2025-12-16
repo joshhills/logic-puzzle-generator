@@ -45,5 +45,18 @@ describe('Validation & Robustness', () => {
             expect(() => generator.generatePuzzle(validCategories, { category1Id: 'C1', value1: 'INVALID_VAL', category2Id: 'C2' }))
                 .toThrow(ConfigurationError);
         });
+
+        it('should throw ConfigurationError if ORDINAL category has non-numeric values', () => {
+            const invalidOrdinal = [
+                { id: 'C1', type: CategoryType.NOMINAL, values: ['A', 'B'] },
+                { id: 'C2', type: CategoryType.ORDINAL, values: ['1', 'two'] } // 'two' is not a number
+            ];
+            const gen = new Generator(123);
+            // Note: Target just needs to point to valid IDs, values don't matter as much as the Category check happens first or during generation
+            // But internalGenerate checks values first.
+            // Let's use valid target IDs.
+            expect(() => gen.generatePuzzle(invalidOrdinal, { category1Id: 'C1', value1: 'A', category2Id: 'C2' }))
+                .toThrow(ConfigurationError);
+        });
     });
 });

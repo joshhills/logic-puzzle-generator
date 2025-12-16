@@ -150,6 +150,31 @@ export class Generator {
             throw new ConfigurationError(`Target value '${target.value1}' does not exist in category '${target.category1Id}'.`);
         }
 
+        // Validate Ordinal Categories
+        for (const cat of categories) {
+            if (cat.type === CategoryType.ORDINAL) {
+                const nonNumeric = cat.values.some(v => typeof v !== 'number' && isNaN(Number(v)));
+                if (nonNumeric) {
+                    // Try to auto-fix/parse?
+                    // For strictness in the library, we should probably throw or rely on the caller to provide numbers.
+                    // But the JSON input from UI might be strings.
+                    // The Generator expects `ValueLabel` which is `string | number`.
+                    // If we want to support "1", "2" strings as numbers, we should parse them?
+                    // But `category.values` is the source of truth.
+                    // If the user passes ["1", "2"], they are strings.
+                    // The engine treats them as discrete values.
+                    // BUT Ordinal logic (Clue generation) does `(a as number) - (b as number)`.
+                    // So they MUST be actual numbers or we must cast them efficiently.
+
+                    // Let's enforce that if it is ORDINAL, the values MUST be parseable as numbers.
+                    // And ideally, they should BE numbers in the config.
+
+                    // If we throw here, we protect the engine from NaN logic.
+                    throw new ConfigurationError(`Category '${cat.id}' is ORDINAL but contains non-numeric values.`);
+                }
+            }
+        }
+
         this.createSolution(categories);
         let availableClues = this.generateAllPossibleClues(categories);
         if (targetCount) {

@@ -118,3 +118,4 @@ dist
 
 # Brain
 .gemini
+.DS_Store

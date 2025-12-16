@@ -1,14 +1,77 @@
 import React from 'react';
 import { LogicGrid, CategoryConfig } from '../../../src/index';
 
+interface HoverState {
+    gridRow: number;
+    gridCol: number;
+    rowValIndex: number;
+    colValIndex: number;
+    rowCatId: string;
+    colCatId: string;
+    rowVal: string | number;
+    colVal: string | number;
+}
+
 interface ComparisonGridProps {
     grid: LogicGrid;
     rowCategory: CategoryConfig;
     colCategory: CategoryConfig;
+
+    // Layout Coords
+    gridIndexRow: number;
+    gridIndexCol: number;
+
+    // Hover State
+    activeHover?: HoverState | null;
+    onHover?: (
+        rowValIndex?: number,
+        colValIndex?: number,
+        rowVal?: string | number,
+        colVal?: string | number
+    ) => void;
+
+    targetFact?: {
+        category1Id: string;
+        value1: string;
+        category2Id: string;
+    };
 }
 
-export const ComparisonGrid: React.FC<ComparisonGridProps> = ({ grid, rowCategory, colCategory }) => {
+export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
+    grid,
+    rowCategory,
+    colCategory,
+    gridIndexRow,
+    gridIndexCol,
+    activeHover,
+    onHover,
+    targetFact
+}) => {
     const cellSize = 40;
+
+    // Check for Target Fact Overlays
+    let rowOverlayIndex = -1;
+    let colOverlayIndex = -1;
+
+    if (targetFact) {
+        // Is this grid relevant? (Cat1 vs Cat2)
+        const isCat1Row = rowCategory.id === targetFact.category1Id;
+        const isCat2Row = rowCategory.id === targetFact.category2Id;
+        const isCat1Col = colCategory.id === targetFact.category1Id;
+        const isCat2Col = colCategory.id === targetFact.category2Id;
+
+        // Valid pairs: (Cat1, Cat2) or (Cat2, Cat1)
+        if ((isCat1Row && isCat2Col) || (isCat2Row && isCat1Col)) {
+            // If Row is Cat1, overlay on Value1
+            if (isCat1Row) {
+                rowOverlayIndex = rowCategory.values.indexOf(targetFact.value1);
+            }
+            // If Col is Cat1, overlay on Value1
+            if (isCat1Col) {
+                colOverlayIndex = colCategory.values.indexOf(targetFact.value1);
+            }
+        }
+    }
 
     return (
         <div
@@ -16,27 +79,49 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({ grid, rowCategor
                 display: 'grid',
                 gridTemplateColumns: `repeat(${colCategory.values.length}, ${cellSize}px)`,
                 gridTemplateRows: `repeat(${rowCategory.values.length}, ${cellSize}px)`,
-
-                // Border Strategy (Collapsed):
-                // Give EVERY grid a full 2px border.
                 border: '2px solid #555',
-
-                // Use negative margins to overlap borders with neighbors.
-                // The logical neighbor will place its Left border on top of our Right border.
-                // But we want to ensure visual consistency.
                 marginRight: '-2px',
                 marginBottom: '-2px',
-
-                gap: '1px', // Creates the inner lines
-                backgroundColor: '#888', // Color of the inner lines (gap color)
+                gap: '1px',
+                backgroundColor: '#888',
+                position: 'relative', // For overlays
             }}
+            onMouseLeave={() => onHover && onHover(undefined, undefined, undefined, undefined)}
         >
-            {rowCategory.values.map((rowVal: string | number) =>
-                colCategory.values.map((colVal: string | number) => {
+            {/* Target Overlays */}
+            {rowOverlayIndex !== -1 && (
+                <div style={{
+                    position: 'absolute',
+                    top: rowOverlayIndex * (cellSize + 1), // +1 for gap
+                    left: 0,
+                    width: '100%',
+                    height: `${cellSize}px`,
+                    border: '3px solid #ef4444',
+                    pointerEvents: 'none', // Allow clicks through
+                    boxSizing: 'border-box',
+                    zIndex: 10
+                }} />
+            )}
+            {colOverlayIndex !== -1 && (
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: colOverlayIndex * (cellSize + 1),
+                    height: '100%',
+                    width: `${cellSize}px`,
+                    border: '3px solid #ef4444',
+                    pointerEvents: 'none',
+                    boxSizing: 'border-box',
+                    zIndex: 10
+                }} />
+            )}
+
+            {rowCategory.values.map((rowVal: string | number, rowValIndex: number) =>
+                colCategory.values.map((colVal: string | number, colValIndex: number) => {
                     const isPossible = grid.isPossible(rowCategory.id, rowVal, colCategory.id, colVal);
 
                     let content = '';
-                    let bgColor = '#fff'; // Default cell color
+                    let bgColor = '#fff';
                     let color = '#000';
 
                     if (!isPossible) {
@@ -48,15 +133,54 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({ grid, rowCategor
                         const colPoss = grid.getPossibilitiesCount(colCategory.id, colVal, rowCategory.id);
 
                         if (rowPoss === 1 && colPoss === 1) {
-                            content = 'O';
+                            content = '✓';
                             color = '#2ecc71';
                             bgColor = '#e8f8f5';
                         }
                     }
 
+                    // L-Shape Hover Logic
+                    let isRowHighlighted = false;
+                    let isColHighlighted = false;
+
+                    if (activeHover) {
+                        // Row Highlight: If this cell is "Left Of" or "At" the active cursor (in relevant grid columns)
+                        // Relevant Grid Columns: Any grid that is to the LEFT of the active Grid Col.
+                        // OR Same Grid Col, but cell column index <= active cell column index.
+
+                        // Condition 1: Same Row Value? (Must align horizontally)
+                        if (rowCatIdCheck(activeHover.rowCatId, rowCategory.id) && activeHover.rowVal === rowVal) {
+                            if (gridIndexCol < activeHover.gridCol) {
+                                isRowHighlighted = true;
+                            } else if (gridIndexCol === activeHover.gridCol && colValIndex <= activeHover.colValIndex) {
+                                isRowHighlighted = true;
+                            }
+                        }
+
+                        // Col Highlight: If this cell is "Above" or "At" the active cursor (in relevant grid rows)
+                        if (colCatIdCheck(activeHover.colCatId, colCategory.id) && activeHover.colVal === colVal) {
+                            if (gridIndexRow < activeHover.gridRow) {
+                                isColHighlighted = true;
+                            } else if (gridIndexRow === activeHover.gridRow && rowValIndex <= activeHover.rowValIndex) {
+                                isColHighlighted = true;
+                            }
+                        }
+                    }
+
+                    if ((isRowHighlighted || isColHighlighted) && bgColor === '#fff') {
+                        bgColor = '#e0f2fe';
+                    } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#e8f8f5') {
+                        bgColor = '#d1fae5'; // Darker green if already decided
+                    } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#f9f9f9') {
+                        bgColor = '#fee2e2'; // Darker red if crossed
+                    }
+
                     return (
                         <div
                             key={`${rowVal}-${colVal}`}
+                            onMouseEnter={() => {
+                                if (onHover) onHover(rowValIndex, colValIndex, rowVal, colVal);
+                            }}
                             style={{
                                 width: '100%',
                                 height: '100%',
@@ -79,3 +203,7 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({ grid, rowCategor
         </div>
     );
 };
+
+// Helper to check ID matching (safe string comparison)
+const rowCatIdCheck = (hId: string, rId: string) => hId === rId;
+const colCatIdCheck = (hId: string, cId: string) => hId === cId;
