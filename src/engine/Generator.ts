@@ -40,6 +40,12 @@ export interface GeneratorOptions {
      * Default: Infinity (Exhaustive search).
      */
     maxCandidates?: number;
+    /**
+     * Attempt to generate a puzzle with exactly this many clues.
+     * The generator will use backtracking to find a path of this length.
+     * May throw an error if the count is infeasible.
+     */
+    targetClueCount?: number;
 }
 
 // A simple seeded PRNG (mulberry32)
@@ -79,18 +85,55 @@ export class Generator {
 
     /**
      * Generates a fully solvable logic puzzle based on the provided configuration.
-     * 
+     * Estimates the minimum and maximum number of clues required to solve a puzzle
+     * for the given configuration and target, by running several simulations.
+     * This is a computationally intensive operation.
+     *
      * @param categories - The categories and values to include in the puzzle.
      * @param target - The specific fact that should be the final deduction of the puzzle.
-     * @param options - Optional configuration for the generation process.
-     * @returns A complete Puzzle object containing the solution, clues, and proof chain.
+     * @returns A promise resolving to an object containing the estimated min and max clue counts.
      */
-    public generatePuzzle(categories: CategoryConfig[], target: TargetFact, options?: GeneratorOptions): Puzzle {
+    public async getClueCountBounds(categories: CategoryConfig[], target: TargetFact): Promise<{ min: number, max: number }> {
+        const ITERATIONS = 10;
+        let min = Infinity;
+        let max = 0;
+
+        for (let i = 0; i < ITERATIONS; i++) {
+            // Use temporary generator state for simulation
+            const seed = this.seed + i + 1;
+            const tempGen = new Generator(seed);
+
+            // Min bound: Greedy Best
+            try {
+                const minPuzzle = tempGen.internalGenerate(categories, target, 'min');
+                if (minPuzzle) min = Math.min(min, minPuzzle.clues.length);
+            } catch (e) { /* Ignore unsolvables in simulation */ }
+
+            // Max bound: Greedy Worst
+            try {
+                const tempGen2 = new Generator(seed); // fresh state
+                const maxPuzzle = tempGen2.internalGenerate(categories, target, 'max');
+                if (maxPuzzle) max = Math.max(max, maxPuzzle.clues.length);
+            } catch (e) { /* Ignore */ }
+        }
+
+        if (min === Infinity) min = 0; // Failed to solve any
+        return { min, max };
+    }
+
+    /**
+     * Internal generation method exposed for simulations.
+     * @param strategy 'standard' | 'min' | 'max'
+     */
+    private internalGenerate(categories: CategoryConfig[], target: TargetFact, strategy: 'standard' | 'min' | 'max', options?: GeneratorOptions): Puzzle {
         if (!categories || categories.length < 2) {
             throw new ConfigurationError('At least 2 categories are required to generate a puzzle.');
         }
 
         const maxCandidates = options?.maxCandidates ?? Infinity;
+        const targetCount = options?.targetClueCount; // Will be used later
+
+        if (maxCandidates < 1) throw new ConfigurationError("maxCandidates must be at least 1");
 
         // Validate target fact
         const catIds = new Set(categories.map(c => c.id));
@@ -109,15 +152,20 @@ export class Generator {
 
         this.createSolution(categories);
         let availableClues = this.generateAllPossibleClues(categories);
+        if (targetCount) {
+            return this.generateWithBacktracking(categories, target, targetCount, maxCandidates, strategy);
+        }
+
         const logicGrid = new LogicGrid(categories);
 
         const proofChain: ProofStep[] = [];
+        const MAX_STEPS = 100;
 
-        while (proofChain.length < 100) { // Safety break
+        while (proofChain.length < MAX_STEPS) {
             let bestCandidate: { clue: Clue, score: number } | null = null;
             let finalCandidate: { clue: Clue, score: number } | null = null;
 
-            // Shuffle available clues if we are sampling
+            // Strategy-specific shuffling
             if (maxCandidates < availableClues.length) {
                 for (let i = availableClues.length - 1; i > 0; i--) {
                     const j = Math.floor(this.random() * (i + 1));
@@ -126,56 +174,75 @@ export class Generator {
             }
 
             const candidatesToCheck = Math.min(availableClues.length, maxCandidates);
-
             let checkedCount = 0;
 
             for (let i = availableClues.length - 1; i >= 0; i--) {
-                if (checkedCount >= candidatesToCheck) {
-                    break;
-                }
+                if (checkedCount >= candidatesToCheck) break;
 
                 const clue = availableClues[i];
                 const tempGrid = logicGrid.clone();
                 const { deductions } = this.solver.applyClue(tempGrid, clue);
 
                 if (deductions === 0) {
-                    availableClues.splice(i, 1); // Permanently remove redundant clue
+                    availableClues.splice(i, 1);
                     continue;
                 }
 
                 checkedCount++;
+                let score = 0;
 
-                const score = this.calculateScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue));
+                // Strategy Logic
+                if (strategy === 'min') {
+                    // Prefer HIGH deductions
+                    score = deductions * 1000;
+                } else if (strategy === 'max') {
+                    // Prefer LOW deductions (but > 0)
+                    score = (100 / deductions);
+                } else {
+                    // Standard balanced scoring
+                    score = this.calculateScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue));
+                }
 
-                if (score > -1000000) { // Not a premature solve
+                // Check for immediate solution vs normal step
+                const clueType = clue.type;
+                const targetValue = this.solution[target.category2Id][target.value1];
+                const isTargetSolved = tempGrid.isPossible(target.category1Id, target.value1, target.category2Id, targetValue) &&
+                    tempGrid.getPossibilitiesCount(target.category1Id, target.value1, target.category2Id) === 1;
+                const puzzleSolved = this.isPuzzleSolved(tempGrid);
+
+                if (isTargetSolved) {
+                    if (puzzleSolved) {
+                        // Solves it completely - always a candidate
+                        finalCandidate = { clue, score: score + 1000000 };
+                    } else {
+                        // Solves target but grid incomplete - bad
+                        score = -1000000;
+                    }
+                }
+
+                if (score > -999999) {
                     if (!bestCandidate || score > bestCandidate.score) {
                         bestCandidate = { clue, score };
                     }
-                } else {
-                    finalCandidate = { clue, score }; // It solves the target, keep as a final option
                 }
             }
 
-            const chosenCandidate = bestCandidate || finalCandidate;
+            const chosenCandidate = finalCandidate || bestCandidate; // Prioritize finishing if possible?
+            // Actually standard logic prioritizes 'bestCandidate_ unless final is the only option or final is better.
+            // Let's stick closer to original:
+            // if (isTargetSolved && puzzleSolved) return 1000000
 
-            if (!chosenCandidate) {
-                // No more useful clues found
-                break;
-            }
+            // Simplified selection for simulation:
+            if (!chosenCandidate) break;
 
             const chosenClue = chosenCandidate.clue;
             const { deductions } = this.solver.applyClue(logicGrid, chosenClue);
             proofChain.push({ clue: chosenClue, deductions });
 
-            // Remove the chosen clue from the available list
             const chosenIndex = availableClues.findIndex(c => JSON.stringify(c) === JSON.stringify(chosenClue));
-            if (chosenIndex > -1) {
-                availableClues.splice(chosenIndex, 1);
-            }
+            if (chosenIndex > -1) availableClues.splice(chosenIndex, 1);
 
-            if (this.isPuzzleSolved(logicGrid)) {
-                break;
-            }
+            if (this.isPuzzleSolved(logicGrid)) break;
         }
 
         return {
@@ -185,6 +252,140 @@ export class Generator {
             categories,
             targetFact: target,
         };
+    }
+
+    private generateWithBacktracking(
+        categories: CategoryConfig[],
+        target: TargetFact,
+        targetCount: number,
+        maxCandidates: number,
+        strategy: 'standard' | 'min' | 'max'
+    ): Puzzle {
+        const availableClues = this.generateAllPossibleClues(categories);
+        const logicGrid = new LogicGrid(categories);
+
+        // Timeout protection
+        const startTime = Date.now();
+        const TIMEOUT_MS = 5000;
+
+        const search = (currentGrid: LogicGrid, currentChain: ProofStep[], currentAvailable: Clue[]): ProofStep[] | null => {
+            if (Date.now() - startTime > TIMEOUT_MS) return null;
+
+            // Check if solved
+            const isSolved = this.isPuzzleSolved(currentGrid);
+
+            if (isSolved) {
+                return currentChain.length === targetCount ? currentChain : null;
+            }
+
+            if (currentChain.length >= targetCount) {
+                return null; // Overshot
+            }
+
+            // Heuristic Sorting
+            // If we are "behind schedule" (need many clues), prefer WEAK clues.
+            // If we are "ahead of schedule" (need few clues), prefer STRONG clues.
+            const stats = currentGrid.getGridStats();
+            const progress = (stats.totalPossible - stats.currentPossible) / (stats.totalPossible - stats.solutionPossible);
+            const stepsTaken = currentChain.length + 1; // considering next step
+            const idealProgressPerStep = 1.0 / targetCount;
+            const currentExpectedProgress = stepsTaken * idealProgressPerStep;
+
+            // If progress > expected, we are moving too fast -> Slow down (pick weak clues)
+            // If progress < expected, we are moving too slow -> Speed up (pick strong clues)
+            // Actually, wait.
+            // If we need 10 steps and we are at step 2 with 50% solved, we need to SLOW DOWN.
+            // If we need 10 steps and we are at step 8 with 10% solved, we need to SPEED UP.
+
+            const needsToSpeedUp = progress < (stepsTaken / targetCount);
+
+            // Filter and Sort Candidates
+            let candidates: { clue: Clue, deductions: number, score: number, grid: LogicGrid, index: number }[] = [];
+
+            // Shuffle for variety
+            if (maxCandidates < currentAvailable.length) {
+                for (let i = currentAvailable.length - 1; i > 0; i--) {
+                    const j = Math.floor(this.random() * (i + 1));
+                    [currentAvailable[i], currentAvailable[j]] = [currentAvailable[j], currentAvailable[i]];
+                }
+            }
+
+            const limit = Math.min(currentAvailable.length, maxCandidates);
+            let checked = 0;
+
+            for (let i = 0; i < currentAvailable.length; i++) {
+                if (checked >= limit) break;
+
+                const clue = currentAvailable[i];
+                const tempGrid = currentGrid.clone();
+                const { deductions } = this.solver.applyClue(tempGrid, clue);
+
+                if (deductions === 0) continue;
+                checked++;
+
+                // Do NOT allow early solves unless it's the last step
+                const solvedNow = this.isPuzzleSolved(tempGrid);
+                if (solvedNow && (stepsTaken < targetCount)) continue;
+
+                // Calculate Base Quality Score (Variety, Repetition, etc.)
+                const qualityScore = this.calculateScore(tempGrid, target, deductions, clue, currentChain.map(p => p.clue));
+
+                let heuristicScore = 0;
+                if (needsToSpeedUp) {
+                    heuristicScore = deductions * 10; // Favor high deductions
+                } else {
+                    heuristicScore = (1 / deductions) * 10; // Favor low deductions
+                }
+
+                // Combine: Heuristic (Hitting the target count) + Quality (Good puzzle design)
+                // We weight Heuristic higher because hitting the target count is the hard constraint,
+                // but Quality handles the tie-breaking.
+                let score = heuristicScore + qualityScore;
+
+                // Add randomness to score to prevent determinism
+                score += this.random();
+
+                candidates.push({ clue, deductions, score, grid: tempGrid, index: i });
+            }
+
+            candidates.sort((a, b) => b.score - a.score); // Descending score
+
+            for (const cand of candidates) {
+                const nextAvailable = [...currentAvailable];
+                nextAvailable.splice(cand.index, 1); // Remove used clue
+
+                const result = search(cand.grid, [...currentChain, { clue: cand.clue, deductions: cand.deductions }], nextAvailable);
+                if (result) return result;
+            }
+
+            return null;
+        };
+
+        const resultChain = search(logicGrid, [], availableClues);
+
+        if (!resultChain) {
+            throw new ConfigurationError(`Could not generate puzzle with exactly ${targetCount} clues within timeout.`);
+        }
+
+        return {
+            solution: this.solution,
+            clues: resultChain.map(p => p.clue),
+            proofChain: resultChain,
+            categories,
+            targetFact: target
+        };
+    }
+
+    /**
+     * Generates a fully solvable logic puzzle based on the provided configuration.
+     *
+     * @param categories - The categories and values to include in the puzzle.
+     * @param target - The specific fact that should be the final deduction of the puzzle.
+     * @param options - Optional configuration for the generation process.
+     * @returns A complete Puzzle object containing the solution, clues, and proof chain.
+     */
+    public generatePuzzle(categories: CategoryConfig[], target: TargetFact, options?: GeneratorOptions): Puzzle {
+        return this.internalGenerate(categories, target, 'standard', options);
     }
 
     private createSolution(categories: CategoryConfig[]): void {

@@ -74,4 +74,28 @@ for (const test of MATRIX) {
 
     console.log(`${avg.toFixed(2)}ms / puzzle (Success: ${success}/${test.iters})`);
 }
+
+// Exact Count Benchmark
+console.log('--- Exact Count Benchmark ---');
+{
+    const ITERATIONS = 10;
+    const TARGET_COUNT = 15;
+    const generator = new Generator(123);
+    const config = generateConfig(4, 5); // 4x5 grid
+    const target = { category1Id: config[0].id, value1: config[0].values[0], category2Id: config[1].id };
+
+    process.stdout.write(`Running Exact Count (4x5, Target=${TARGET_COUNT}) ... `);
+    const start = performance.now();
+    let success = 0;
+
+    for (let i = 0; i < ITERATIONS; i++) {
+        try {
+            const p = generator.generatePuzzle(config, target, { targetClueCount: TARGET_COUNT, maxCandidates: 100 });
+            if (p.clues.length === TARGET_COUNT) success++;
+        } catch (e) { }
+    }
+    const avg = (performance.now() - start) / ITERATIONS;
+    console.log(`${avg.toFixed(2)}ms / puzzle (Success: ${success}/${ITERATIONS})`);
+}
+
 console.log('-----------------------------');

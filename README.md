@@ -129,6 +129,23 @@ The library is optimized for performance and scales to handle complex puzzle gri
 ### Large Puzzles
 For puzzles with 6+ categories or high complexity, use the `maxCandidates` option in `generatePuzzle` to trade a small amount of "perfect logical elegance" for massive performance gains. This limits the search space at each step while ensuring the puzzle remains fully solvable.
 
+### Controlling Clue Count
+By default, the generator produces the most efficient puzzle it can find. To target a specific difficulty or length, you can request an exact number of clues.
+
+1.  **Estimate Feasibility**: First, check what is possible for your grid.
+    ```typescript
+    const bounds = await generator.getClueCountBounds(categories, target); 
+    // -> { min: 4, max: 12 }
+    ```
+2.  **Generate**:
+    ```typescript
+    const puzzle = generator.generatePuzzle(categories, target, {
+        targetClueCount: 8, // Must be within feasible range
+        maxCandidates: 100
+    });
+    ```
+    > **Note**: This uses a backtracking algorithm and is slower (~2x) than standard generation. It may throw an error if the target is impossible to hit within the timeout.
+
 ### Clues
 The generator produces four types of clues:
 1.  **Binary**: Direct relationships. "Alice eats Chips" or "Bob does NOT eat Popcorn".
@@ -144,7 +161,8 @@ The generator solves the puzzle as it builds it. The `puzzle.proofChain` array c
 ### `Generator`
 The main class.
 - `constructor(seed: number)`: Initialize with a seed for reproducible results.
-- `generatePuzzle(categories, target)`: Returns a `Puzzle` object.
+- `generatePuzzle(categories, target, options)`: Returns a `Puzzle` object.
+- `getClueCountBounds(categories, target)`: Returns plausible Min/Max clue counts.
 
 ### `LogicGrid`
 Manages the state of the puzzle grid (possibility matrix).
