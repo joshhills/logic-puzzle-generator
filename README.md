@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/github/package-json/v/joshhills/logic-puzzle-generator)
 ![Tests](https://github.com/joshhills/logic-puzzle-generator/actions/workflows/test.yml/badge.svg?label=Tests)
-![License](https://img.shields.io/github/license/joshhills/logic-puzzle-generator)
+![License](https://img.shields.io/badge/license-MIT-green)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
 
 
@@ -154,6 +154,21 @@ Manages the state of the puzzle grid (possibility matrix).
 ### `Solver`
 The logical engine.
 - `applyClue(grid, clue)`: Applies a clue and cascades deductions.
+
+## AI Disclosure & Liability Policy
+
+### Transparency Statement
+This project utilizes artificial intelligence (AI) tools to assist in the generation of code, logic algorithms, and documentation. While human oversight is rigorously applied, portions of the codebase are AI-generated.
+
+### Copyright and Licensing
+- **Human Contribution**: The project structure, architectural decisions, core logic verification, and test suites are human-authored and covered by the standard project license.
+- **AI-Generated Content**: To the extent that AI-generated content is not eligible for copyright protection, it is dedicated to the public domain. Where copyrightable, it is licensed under the MIT license alongside human contributions.
+
+### "AS IS" and Liability Waiver
+This software is provided "AS IS", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software.
+
+### Accuracy Warning
+While all code is reviewed and tested, complete accuracy cannot be guaranteed. Users are responsible for verifying that the puzzle generation logic meets the strict requirements of their specific use cases.
 
 ## License
 MIT
