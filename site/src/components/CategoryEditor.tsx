@@ -1,10 +1,11 @@
 import React from 'react';
-import { CategoryConfig, CategoryType } from '../../../src/index';
+import { CategoryType } from '../../../src/index';
+import { AppCategoryConfig } from '../types';
 
 interface CategoryEditorProps {
-    originalCategories: CategoryConfig[];
-    draftCategories: CategoryConfig[];
-    onDraftUpdate: (newDraft: CategoryConfig[]) => void;
+    originalCategories: AppCategoryConfig[];
+    draftCategories: AppCategoryConfig[];
+    onDraftUpdate: (newDraft: AppCategoryConfig[]) => void;
     onSave: () => void;
     onCancel: () => void;
 }
@@ -68,15 +69,41 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
             }
         }
 
-        newCats[idx] = { ...newCats[idx], type: newType };
+        // Reset Display Type if switching away from Ordinal
+        if (newType !== CategoryType.ORDINAL) {
+            newCats[idx] = { ...cat, type: newType, displayType: undefined };
+        } else {
+            newCats[idx] = { ...cat, type: newType };
+        }
+
         onDraftUpdate(newCats);
     };
 
-    const handleValueChange = (catIdx: number, valIdx: number, newValue: string) => {
+
+
+    const handleValueChange = (catIdx: number, valIdx: number, rawValue: string) => {
         const newCats = [...draftCategories];
-        const newValues = [...newCats[catIdx].values];
-        newValues[valIdx] = newValue;
-        newCats[catIdx] = { ...newCats[catIdx], values: newValues };
+        const cat = newCats[catIdx];
+        const newValues = [...cat.values];
+
+        if (cat.displayType === 'date') {
+            // Input is YYYY-MM-DD
+            if (!rawValue) {
+                // Empty date input
+                newValues[valIdx] = ''; // Will fail numeric check
+            } else {
+                const date = new Date(rawValue);
+                if (!isNaN(date.getTime())) {
+                    newValues[valIdx] = date.getTime();
+                } else {
+                    newValues[valIdx] = '';
+                }
+            }
+        } else {
+            newValues[valIdx] = rawValue;
+        }
+
+        newCats[catIdx] = { ...cat, values: newValues };
         onDraftUpdate(newCats);
     };
 
@@ -97,77 +124,408 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
         onDraftUpdate(newCats);
     };
 
+    const handleDisplayTypeChange = (catIdx: number, newType: 'text' | 'date') => {
+        const newCats = [...draftCategories];
+        const cat = newCats[catIdx];
+        const newValues = [...cat.values];
+
+        if (newType === 'date') {
+            // Smart Conversion: If switching to date, and values are small numbers (IDs),
+            // replace them with a default sequence to avoid "1970" duplicates.
+            const isSmallNumbers = newValues.every(v => !isNaN(Number(v)) && Number(v) < 100000);
+
+            if (isSmallNumbers) {
+                // Initialize with distinct dates starting from Jan 1, 2025
+                // using increments of 1 day to ensure uniqueness.
+                const baseDate = new Date('2025-01-01T00:00:00Z').getTime();
+                const oneDay = 86400000;
+                newValues.forEach((_, i) => {
+                    newValues[i] = baseDate + (i * oneDay); // Numbers (Timestamps)
+                });
+            }
+        }
+
+        newCats[catIdx] = { ...cat, displayType: newType, values: newValues };
+        onDraftUpdate(newCats);
+    };
+
+    // Helper to format value for input display
+    const getInputValue = (val: string | number, displayType?: 'text' | 'date') => {
+        if (displayType === 'date') {
+            const num = Number(val);
+            if (!isNaN(num) && num > 0) {
+                return new Date(num).toISOString().split('T')[0];
+            }
+            return '';
+        }
+        return val;
+    };
+
+    // Limits
+    const MIN_CATS = 2;
+    const MAX_CATS = 5;
+    const MIN_ITEMS = 3;
+    const MAX_ITEMS = 10;
+
+    // State for hover effect on global delete
+    const [hoveredDeleteIndex, setHoveredDeleteIndex] = React.useState<number | null>(null);
+
+    // DnD State
+    const [draggedItem, setDraggedItem] = React.useState<{ type: 'CAT' | 'VAL', catIdx: number, valIdx?: number } | null>(null);
+
+    // Constants for visual alignment
+    const BUTTON_WIDTH = '24px';
+    const HANDLE_WIDTH = '24px';
+    const GAP = '8px';
+
+    // DND Handlers
+    const handleDragStart = (e: React.DragEvent, type: 'CAT' | 'VAL', catIdx: number, valIdx?: number) => {
+        e.stopPropagation(); // Critical: Prevent bubbling so child drag doesn't trigger parent drag
+
+        // Prevent drag if touching inputs or buttons
+        if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT' || (e.target as HTMLElement).tagName === 'BUTTON') {
+            e.preventDefault();
+            return;
+        }
+
+        e.dataTransfer.setData('text/plain', ''); // Required for Firefox
+        e.dataTransfer.effectAllowed = 'move';
+        setDraggedItem({ type, catIdx, valIdx });
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleDrop = (e: React.DragEvent, targetType: 'CAT' | 'VAL', targetCatIdx: number, targetValIdx?: number) => {
+        e.preventDefault();
+        e.stopPropagation(); // Critical: Prevent bubbling
+        if (!draggedItem) return;
+
+        // 1. Category Reorder
+        if (draggedItem.type === 'CAT' && targetType === 'CAT') {
+            if (draggedItem.catIdx === targetCatIdx) return;
+            const newCats = [...draftCategories];
+            const [moved] = newCats.splice(draggedItem.catIdx, 1);
+            newCats.splice(targetCatIdx, 0, moved);
+            onDraftUpdate(newCats);
+            setDraggedItem(null);
+        }
+
+        // 2. Value Reorder (Local)
+        if (draggedItem.type === 'VAL' && targetType === 'VAL') {
+            if (draggedItem.catIdx !== targetCatIdx) return; // Only same category
+            if (typeof draggedItem.valIdx !== 'number' || typeof targetValIdx !== 'number') return;
+            if (draggedItem.valIdx === targetValIdx) return;
+
+            const newCats = [...draftCategories];
+            const cat = newCats[targetCatIdx];
+            const newValues = [...cat.values];
+
+            const [moved] = newValues.splice(draggedItem.valIdx, 1);
+            newValues.splice(targetValIdx, 0, moved);
+
+            newCats[targetCatIdx] = { ...cat, values: newValues };
+            onDraftUpdate(newCats);
+            setDraggedItem(null);
+        }
+    };
+
+    const handleDragEnd = () => {
+        setDraggedItem(null);
+    };
+
+    // --- Actions ---
+
+    // 1. Add Category
+    const handleAddCategory = () => {
+        if (draftCategories.length >= MAX_CATS) return;
+        const newCats = [...draftCategories];
+        const nItems = newCats[0]?.values.length || 4;
+        const newValues = Array(nItems).fill('').map((_, i) => `Item ${i + 1}`);
+
+        newCats.push({
+            id: `Category ${newCats.length + 1}`,
+            type: CategoryType.NOMINAL,
+            values: newValues
+        });
+        onDraftUpdate(newCats);
+    };
+
+    // 2. Remove Category
+    const handleRemoveCategory = (idx: number) => {
+        if (draftCategories.length <= MIN_CATS) return; // Prevent ensuring invalid state
+        const newCats = draftCategories.filter((_, i) => i !== idx);
+        onDraftUpdate(newCats);
+    };
+
+    // 3. Add Item (Global) with Smart Defaults
+    const handleAddGlobalItem = () => {
+        const currentCount = draftCategories[0]?.values.length || 0;
+        if (currentCount >= MAX_ITEMS) return;
+
+        const newCats = draftCategories.map(cat => {
+            let newValue: string | number = `Item ${cat.values.length + 1}`;
+
+            if (cat.type === CategoryType.ORDINAL) {
+                // Try to deduce next value
+                const nums = cat.values.map(v => Number(v)).filter(n => !isNaN(n));
+                if (nums.length > 0) {
+                    // Simple heuristic: arithmetic progression or just max + step?
+                    // Let's just find the max and add the difference of the last two, or default 10.
+                    const max = Math.max(...nums);
+                    const last = Number(cat.values[cat.values.length - 1]);
+                    const secondLast = Number(cat.values[cat.values.length - 2]);
+
+                    let step = 1;
+                    if (!isNaN(last) && !isNaN(secondLast)) {
+                        step = last - secondLast;
+                    } else if (!isNaN(last) && last >= 10) {
+                        step = 10; // Default step 10 for 10,20,30
+                    }
+
+                    if (cat.displayType === 'date') {
+                        // Date Logic
+                        // If previous was a date, add 1 day (86400000ms)
+                        const lastDate = new Date(last);
+                        if (!isNaN(lastDate.getTime())) {
+                            newValue = last + 86400000;
+                        } else {
+                            // Fallback to today
+                            newValue = new Date().getTime();
+                        }
+                    } else {
+                        // Number Logic
+                        newValue = last + (step > 0 ? step : 1);
+                    }
+                } else if (cat.displayType === 'date') {
+                    // No valid dates yet, start with today
+                    newValue = new Date().setHours(0, 0, 0, 0);
+                } else {
+                    // No valid numbers yet, start with 10
+                    newValue = 10;
+                }
+            }
+
+            return {
+                ...cat,
+                values: [...cat.values, newValue]
+            };
+        });
+
+        onDraftUpdate(newCats);
+    };
+
+    // 4. Remove Item (Global) - Removes index `idx` from ALL categories
+    const handleRemoveGlobalItem = (itemIdx: number) => {
+        const currentCount = draftCategories[0]?.values.length || 0;
+        if (currentCount <= MIN_ITEMS) return;
+
+        const newCats = draftCategories.map(cat => ({
+            ...cat,
+            values: cat.values.filter((_, i) => i !== itemIdx)
+        }));
+        onDraftUpdate(newCats);
+    };
+
     return (
         <div style={{ padding: '20px', backgroundColor: '#333', borderRadius: '8px', marginBottom: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
                 <h4 style={{ margin: 0, color: '#fff' }}>Edit Categories</h4>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                        onClick={handleAddGlobalItem}
+                        disabled={draftCategories[0]?.values.length >= MAX_ITEMS}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '4px',
+                            background: draftCategories[0]?.values.length >= MAX_ITEMS ? '#555' : '#3b82f6',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: draftCategories[0]?.values.length >= MAX_ITEMS ? 'not-allowed' : 'pointer',
+                            fontSize: '0.8em'
+                        }}
+                    >
+                        + Add Value
+                    </button>
+                    <button
+                        onClick={handleAddCategory}
+                        disabled={draftCategories.length >= MAX_CATS}
+                        style={{
+                            padding: '6px 12px',
+                            borderRadius: '4px',
+                            background: draftCategories.length >= MAX_CATS ? '#555' : '#10b981',
+                            color: '#fff',
+                            border: 'none',
+                            cursor: draftCategories.length >= MAX_CATS ? 'not-allowed' : 'pointer',
+                            fontSize: '0.8em'
+                        }}
+                    >
+                        + Add Category
+                    </button>
+                </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
                 {draftCategories.map((cat, i) => {
                     const isOrdinal = cat.type === CategoryType.ORDINAL;
+                    const isDate = cat.displayType === 'date';
+
                     const idTrimmed = cat.id.trim();
                     const isDuplicate = idTrimmed.length > 0 && nameCounts[idTrimmed] > 1;
                     const isEmptyName = idTrimmed.length === 0;
-                    const hasNonNumeric = isOrdinal && cat.values.some(v => isNaN(Number(v)));
+                    const hasNonNumeric = isOrdinal && cat.values.some(v => isNaN(Number(v))); // Dates are numbers (timestamps) so this check passes if valid
 
                     if (isDuplicate || isEmptyName || hasNonNumeric) hasAnyError = true;
                     const nameKey = `name-${i}`;
 
+                    const canDeleteItems = cat.values.length > MIN_ITEMS;
+                    const isDraggingCategory = draggedItem?.type === 'CAT' && draggedItem.catIdx === i;
+
                     return (
-                        <div key={i} style={{ border: '1px solid #444', borderRadius: '8px', padding: '15px', backgroundColor: '#2a2a2a' }}>
+                        <div
+                            key={i}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, 'CAT', i)}
+                            onDragOver={handleDragOver}
+                            onDrop={(e) => handleDrop(e, 'CAT', i)}
+                            onDragEnd={handleDragEnd}
+                            style={{
+                                border: '1px solid #444',
+                                borderRadius: '8px',
+                                padding: '15px',
+                                backgroundColor: isDraggingCategory ? '#2a2a2a80' : '#2a2a2a',
+                                position: 'relative',
+                                opacity: isDraggingCategory ? 0.3 : 1,
+                                transition: 'opacity 0.2s'
+                            }}
+                        >
+                            {/* Remove Category Button */}
+                            {draftCategories.length > MIN_CATS && (
+                                <button
+                                    onClick={() => handleRemoveCategory(i)}
+                                    title="Remove Category"
+                                    style={{
+                                        position: 'absolute',
+                                        top: '10px',
+                                        right: '10px',
+                                        background: 'none',
+                                        border: 'none',
+                                        color: '#666',
+                                        cursor: 'pointer',
+                                        fontSize: '1.2em',
+                                        lineHeight: 1,
+                                        zIndex: 10
+                                    }}
+                                >
+                                    &times;
+                                </button>
+                            )}
+
+                            {/* Category Name Input */}
                             <div style={{ marginBottom: '12px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>
                                     <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase' }}>Category Name</label>
                                 </div>
-                                <div style={{ position: 'relative' }}>
-                                    <input
-                                        type="text"
-                                        value={cat.id}
-                                        maxLength={15}
-                                        onChange={(e) => handleNameChange(i, e.target.value)}
-                                        onKeyDown={(e) => handleInputKeyDown(e, cat.id.length, 15, nameKey)}
+                                <div style={{ display: 'flex', gap: GAP, alignItems: 'center' }}>
+                                    {/* Category Drag Handle Slot */}
+                                    <div
                                         style={{
-                                            width: '100%',
-                                            padding: '8px',
-                                            paddingRight: '45px',
-                                            borderRadius: '4px',
-                                            border: (isDuplicate || isEmptyName) ? '1px solid #ef4444' : '1px solid #555',
-                                            backgroundColor: '#222',
-                                            color: '#fff',
-                                            boxSizing: 'border-box',
-                                            transition: 'border-color 0.1s'
+                                            width: HANDLE_WIDTH,
+                                            flexShrink: 0,
+                                            display: 'flex',
+                                            justifyContent: 'center',
+                                            cursor: 'grab',
+                                            color: '#555',
+                                            fontSize: '1.2em'
                                         }}
-                                    />
-                                    <span style={{
-                                        position: 'absolute',
-                                        right: '8px',
-                                        top: '50%',
-                                        transform: 'translateY(-50%)',
-                                        fontSize: '0.7em',
-                                        color: flashingInput === nameKey ? '#ef4444' : '#666',
-                                        transition: 'color 0.1s',
-                                        pointerEvents: 'none'
-                                    }}>{cat.id.length}/15</span>
+                                        title="Drag to reorder category"
+                                    >
+                                        ⋮⋮
+                                    </div>
+
+                                    <div style={{ position: 'relative', flex: 1 }}>
+                                        <input
+                                            type="text"
+                                            value={cat.id}
+                                            maxLength={15}
+                                            onChange={(e) => handleNameChange(i, e.target.value)}
+                                            onKeyDown={(e) => handleInputKeyDown(e, cat.id.length, 15, nameKey)}
+                                            style={{
+                                                width: '100%',
+                                                padding: '8px',
+                                                paddingRight: '45px',
+                                                borderRadius: '4px',
+                                                border: (isDuplicate || isEmptyName) ? '1px solid #ef4444' : '1px solid #555',
+                                                backgroundColor: '#222',
+                                                color: '#fff',
+                                                boxSizing: 'border-box',
+                                                transition: 'border-color 0.1s'
+                                            }}
+                                        />
+                                        <span style={{
+                                            position: 'absolute',
+                                            right: '8px',
+                                            top: '50%',
+                                            transform: 'translateY(-50%)',
+                                            fontSize: '0.7em',
+                                            color: flashingInput === nameKey ? '#ef4444' : '#666',
+                                            transition: 'color 0.1s',
+                                            pointerEvents: 'none'
+                                        }}>{cat.id.length}/15</span>
+                                    </div>
+                                    {/* Alignment Spacer */}
+                                    {canDeleteItems && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
                                 </div>
-                                {isEmptyName && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Required</div>}
-                                {isDuplicate && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Duplicate Name</div>}
+                                {isEmptyName && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>Required</div>}
+                                {isDuplicate && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>Duplicate Name</div>}
                             </div>
 
-                            <div style={{ marginBottom: '12px' }}>
-                                <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase' }}>Type</label>
-                                <select
-                                    value={cat.type}
-                                    onChange={(e) => handleTypeChange(i, Number(e.target.value))}
-                                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
-                                >
-                                    <option value={CategoryType.NOMINAL}>Nominal (Unordered)</option>
-                                    <option value={CategoryType.ORDINAL}>Ordinal (Ordered)</option>
-                                </select>
+                            {/* Type and Format */}
+                            <div style={{ marginBottom: '12px', display: 'flex', gap: '10px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>Type</label>
+                                    <div style={{ display: 'flex', gap: GAP }}>
+                                        {/* Spacer for Handle Column */}
+                                        <div style={{ width: HANDLE_WIDTH, flexShrink: 0 }}></div>
+
+                                        <select
+                                            value={cat.type}
+                                            onChange={(e) => handleTypeChange(i, Number(e.target.value))}
+                                            style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
+                                        >
+                                            <option value={CategoryType.NOMINAL}>Nominal</option>
+                                            <option value={CategoryType.ORDINAL}>Ordinal</option>
+                                        </select>
+                                        {/* Alignment Spacer (Only if this is the last element in row, which it might not be if Ordinal) */}
+                                        {canDeleteItems && !isOrdinal && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
+                                    </div>
+                                </div>
+
+                                {isOrdinal && (
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase' }}>Format</label>
+                                        <div style={{ display: 'flex', gap: GAP }}>
+                                            <select
+                                                value={isDate ? 'date' : 'text'}
+                                                onChange={(e) => handleDisplayTypeChange(i, e.target.value as 'text' | 'date')}
+                                                style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
+                                            >
+                                                <option value="text">Number</option>
+                                                <option value="date">Date</option>
+                                            </select>
+                                            {/* Alignment Spacer for the last element */}
+                                            {canDeleteItems && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
+                            {/* Values List */}
                             <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>
                                     <label style={{ fontSize: '0.75em', color: '#888', textTransform: 'uppercase' }}>Values</label>
                                     <button
                                         onClick={() => handleSort(i)}
@@ -180,50 +538,121 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                     {cat.values.map((val, vIdx) => {
                                         const isEmptyValue = String(val).trim().length === 0;
-                                        if (isEmptyValue) hasAnyError = true;
+
+                                        // Duplicate Check
+                                        // We check if this value appears elsewhere in the same category
+                                        const isDuplicateValue = cat.values.some((otherVal, otherIdx) => otherIdx !== vIdx && String(otherVal).trim() === String(val).trim());
+
+                                        if (isEmptyValue || isDuplicateValue) hasAnyError = true;
+
                                         const isInvalidOrdinal = isOrdinal && isNaN(Number(val));
                                         const valKey = `val-${i}-${vIdx}`;
+                                        const displayVal = getInputValue(val, cat.displayType);
+                                        const isHoveredForDelete = hoveredDeleteIndex === vIdx;
+                                        const isDraggingValue = draggedItem?.type === 'VAL' && draggedItem.catIdx === i && draggedItem.valIdx === vIdx;
 
                                         return (
-                                            <div key={vIdx} style={{ position: 'relative' }}>
-                                                <input
-                                                    type="text"
-                                                    value={val}
-                                                    maxLength={18}
-                                                    onChange={(e) => handleValueChange(i, vIdx, e.target.value)}
-                                                    onKeyDown={(e) => handleInputKeyDown(e, String(val).length, 18, valKey)}
-                                                    placeholder={`Item ${vIdx + 1}`}
+                                            <div
+                                                key={vIdx}
+                                                draggable
+                                                onDragStart={(e) => handleDragStart(e, 'VAL', i, vIdx)}
+                                                onDragOver={handleDragOver}
+                                                onDrop={(e) => handleDrop(e, 'VAL', i, vIdx)}
+                                                onDragEnd={handleDragEnd}
+                                                style={{
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: GAP,
+                                                    opacity: isDraggingValue ? 0.3 : 1
+                                                }}
+                                            >
+                                                {/* Value Drag Handle */}
+                                                <div
                                                     style={{
-                                                        width: '100%',
-                                                        padding: '8px',
-                                                        paddingRight: '45px',
-                                                        borderRadius: '4px',
-                                                        border: (isInvalidOrdinal || isEmptyValue) ? '1px solid #ef4444' : '1px solid #555',
-                                                        backgroundColor: '#222',
-                                                        color: '#fff',
-                                                        boxSizing: 'border-box'
+                                                        width: HANDLE_WIDTH,
+                                                        flexShrink: 0,
+                                                        display: 'flex',
+                                                        justifyContent: 'center',
+                                                        cursor: 'grab',
+                                                        color: '#555',
+                                                        fontSize: '1.2em'
                                                     }}
-                                                />
-                                                <span style={{
-                                                    position: 'absolute',
-                                                    right: '8px',
-                                                    top: '50%',
-                                                    transform: 'translateY(-50%)',
-                                                    fontSize: '0.7em',
-                                                    color: flashingInput === valKey ? '#ef4444' : '#666',
-                                                    transition: 'color 0.1s',
-                                                    pointerEvents: 'none'
-                                                }}>
-                                                    {String(val).length}/18
-                                                </span>
-                                                {isEmptyValue && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Required</div>}
+                                                    title="Drag to reorder value"
+                                                >
+                                                    ⋮⋮
+                                                </div>
+
+                                                <div style={{ position: 'relative', flex: 1 }}>
+                                                    <input
+                                                        type={isDate ? "date" : "text"}
+                                                        value={displayVal}
+                                                        maxLength={18}
+                                                        onChange={(e) => handleValueChange(i, vIdx, e.target.value)}
+                                                        onKeyDown={(e) => !isDate && handleInputKeyDown(e, String(displayVal).length, 18, valKey)}
+                                                        placeholder={`Item ${vIdx + 1}`}
+                                                        style={{
+                                                            width: '100%',
+                                                            padding: '8px',
+                                                            paddingRight: isDate ? '8px' : '45px',
+                                                            borderRadius: '4px',
+                                                            border: isHoveredForDelete ? '1px solid #ef4444' : (isInvalidOrdinal || isEmptyValue || isDuplicateValue) ? '1px solid #ef4444' : '1px solid #555',
+                                                            backgroundColor: isHoveredForDelete ? '#450a0a' : '#222', // Brighter red bg for visibility
+                                                            color: '#fff',
+                                                            boxSizing: 'border-box',
+                                                            fontFamily: isDate ? 'monospace' : 'inherit',
+                                                            transition: 'all 0.15s ease-in-out'
+                                                        }}
+                                                    />
+                                                    {!isDate && <span style={{
+                                                        position: 'absolute',
+                                                        right: '8px',
+                                                        top: '50%',
+                                                        transform: 'translateY(-50%)',
+                                                        fontSize: '0.7em',
+                                                        color: flashingInput === valKey ? '#ef4444' : '#666',
+                                                        transition: 'color 0.1s',
+                                                        pointerEvents: 'none'
+                                                    }}>
+                                                        {String(val)?.length}/18
+                                                    </span>}
+                                                    {isEmptyValue && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Required</div>}
+                                                    {isDuplicateValue && !isEmptyValue && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Duplicate Value</div>}
+                                                </div>
+
+                                                {canDeleteItems && (
+                                                    <button
+                                                        onClick={() => handleRemoveGlobalItem(vIdx)}
+                                                        title="Remove Value Row (from all categories)"
+                                                        style={{
+                                                            background: 'none',
+                                                            border: 'none',
+                                                            color: '#666',
+                                                            cursor: 'pointer',
+                                                            fontSize: '1.2em',
+                                                            padding: '0 4px',
+                                                            lineHeight: 1,
+                                                            width: BUTTON_WIDTH,
+                                                            textAlign: 'center'
+                                                        }}
+                                                        onMouseEnter={(e) => {
+                                                            e.currentTarget.style.color = '#ef4444';
+                                                            setHoveredDeleteIndex(vIdx);
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            e.currentTarget.style.color = '#666';
+                                                            setHoveredDeleteIndex(null);
+                                                        }}
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                )}
                                             </div>
                                         )
                                     })}
                                 </div>
                                 {hasNonNumeric && (
                                     <div style={{ color: '#ef4444', fontSize: '0.8em', marginTop: '16px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                        <span>⚠️</span> Ordinal values must be numbers.
+                                        <span>⚠️</span> {isDate ? 'Invalid Date' : 'Ordinal values must be numbers.'}
                                     </div>
                                 )}
                             </div>
@@ -263,6 +692,6 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                     Save Changes
                 </button>
             </div>
-        </div >
+        </div>
     );
 };

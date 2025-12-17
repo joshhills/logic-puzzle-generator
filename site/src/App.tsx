@@ -5,6 +5,7 @@ import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
+import { AppCategoryConfig } from './types';
 
 // Steps: 0=Structure, 1=Goal, 2=Solution
 const STEPS = ['Structure', 'Goal', 'Solution'];
@@ -54,8 +55,8 @@ function App() {
   // --- Step 1: Structure State ---
   const [numCats, setNumCats] = useState(3);
   const [numItems, setNumItems] = useState(4);
-  const [categories, setCategories] = useState<CategoryConfig[]>(() => generateDefaultCategories(3, 4));
-  const [draftCategories, setDraftCategories] = useState<CategoryConfig[] | null>(null);
+  const [categories, setCategories] = useState<AppCategoryConfig[]>(() => generateDefaultCategories(3, 4));
+  const [draftCategories, setDraftCategories] = useState<AppCategoryConfig[] | null>(null);
   const [isEditingCats, setIsEditingCats] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
@@ -72,6 +73,10 @@ function App() {
 
   // --- Step 3: Solution State ---
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
+
+  // --- Step 4: Play Mode State ---
+  const [viewMode, setViewMode] = useState<'solution' | 'play'>('play');
+  const [userPlayState, setUserPlayState] = useState<Record<string, 'T' | 'F'>>({});
 
   // Scroll refs
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -114,6 +119,10 @@ function App() {
             // Restore view state if puzzle exists
             setMaxReachedStep(data.maxReachedStep || 2);
             setSelectedStep(data.selectedStep ?? -1);
+
+            // Restore Play Mode
+            if (data.viewMode) setViewMode(data.viewMode);
+            if (data.userPlayState) setUserPlayState(data.userPlayState);
           }
         } else {
           console.log("Data version mismatch, defining defaults.");
@@ -142,7 +151,9 @@ function App() {
           targetCat1Idx, targetVal1Idx, targetCat2Idx
         },
         categories,
-        puzzle
+        puzzle,
+        viewMode,
+        userPlayState
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }, 500); // 500ms debounce
@@ -152,7 +163,7 @@ function App() {
     numCats, numItems, categories,
     targetClueCount, useTargetClueCount, seedInput, flavorText,
     targetCat1Idx, targetVal1Idx, targetCat2Idx,
-    puzzle
+    puzzle, viewMode, userPlayState
   ]);
 
   // Update max reached step
@@ -228,6 +239,10 @@ function App() {
     // Reset puzzle if structure changes
     setPuzzle(null);
     setSelectedStep(-1);
+
+    // Reset Play Mode
+    setUserPlayState({});
+    setViewMode('solution');
   };
 
   const handleOpenEditor = (e: React.MouseEvent) => {
@@ -248,6 +263,12 @@ function App() {
       setCategories(draftCategories);
       setDraftCategories(null); // Clear draft
       setIsEditingCats(false);
+
+      // Reset logic if cats change substantially? 
+      // Ideally we try to keep keys if possible, but simplest is to reset marks if struct changes.
+      // But here we are just editing names/values. IDs might change.
+      // Let's reset play state to be safe.
+      setUserPlayState({});
     }
   };
 
@@ -263,6 +284,34 @@ function App() {
   const confirmReset = () => {
     localStorage.removeItem(STORAGE_KEY);
     window.location.reload();
+  };
+
+  // Play Mode Action
+  const handleCellInteraction = (cat1: string, val1: string | number, cat2: string, val2: string | number) => {
+    // Always canonicalize key to avoid (A,B) vs (B,A) dupes
+    // Sort categories by ID
+    const [cA, cB] = [cat1, cat2].sort();
+    // If categories swapped, swap values too
+    const [vA, vB] = cA === cat1 ? [val1, val2] : [val2, val1];
+
+    const key = `${cA}:${cB}:${vA}:${vB}`;
+
+    // Cycle: Empty -> 'F' -> 'T' -> Empty
+    // Current State
+    const curr = userPlayState[key];
+    let next: 'T' | 'F' | undefined = undefined;
+
+    if (curr === undefined) next = 'F'; // Empty -> Cross
+    else if (curr === 'F') next = 'T'; // Cross -> Tick
+    else if (curr === 'T') next = undefined; // Tick -> Empty
+
+    const newState = { ...userPlayState };
+    if (next === undefined) {
+      delete newState[key];
+    } else {
+      newState[key] = next;
+    }
+    setUserPlayState(newState);
   };
 
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -648,6 +697,18 @@ function App() {
 
   const renderSolutionStep = () => {
     if (!puzzle) return null;
+    // Date Formatting Helper
+    const formatClueValue = (val: string | number, catId: string) => {
+      const cat = categories.find(ct => ct.id === catId);
+      if (cat && cat.displayType === 'date') {
+        const num = Number(val);
+        if (!isNaN(num) && num > 0) {
+          return new Date(num).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      }
+      return String(val);
+    };
+
     return (
       <div
         key="step2"
@@ -665,7 +726,7 @@ function App() {
           <div>
             <h3 className="print-hide" style={{ margin: 0, color: '#10b981' }}>3. Clues Generated!</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em', marginTop: '5px' }}>
-              Target: Find <strong>{categories[targetCat2Idx]?.id}</strong> for <strong>{categories[targetCat1Idx]?.values[targetVal1Idx]}</strong> ({categories[targetCat1Idx]?.id})
+              Target: Find <strong>{categories[targetCat2Idx]?.id}</strong> for <strong>{formatClueValue(categories[targetCat1Idx]?.values[targetVal1Idx], categories[targetCat1Idx]?.id)}</strong> ({categories[targetCat1Idx]?.id})
             </div>
           </div>
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -701,27 +762,36 @@ function App() {
           {puzzle.proofChain.map((step, i) => {
             let desc = "Unknown Clue";
             const c = step.clue as any;
+
             if (c) {
               // Basic formatting for demo
               if (c.type === 0 || c.type === 'BINARY') {
-                desc = `${c.val1} is ${c.operator === 0 ? '' : 'NOT '} ${c.val2}`;
+                const v1 = formatClueValue(c.val1, c.cat1);
+                const v2 = formatClueValue(c.val2, c.cat2);
+                desc = `${v1} is ${c.operator === 0 ? '' : 'NOT '} ${v2}`;
               } else if (c.type === 1 || c.type === 'ORDINAL') {
+                const v1 = formatClueValue(c.item1Val, c.item1Cat);
+                const v2 = formatClueValue(c.item2Val, c.item2Cat);
                 let opText = '';
                 if (c.operator === 0) opText = 'AFTER';
                 else if (c.operator === 1) opText = 'BEFORE';
                 else if (c.operator === 2) opText = 'NOT AFTER'; // <=
                 else if (c.operator === 3) opText = 'NOT BEFORE'; // >=
-                desc = `${c.item1Val} is ${opText} ${c.item2Val} (${c.ordinalCat})`;
+                desc = `${v1} is ${opText} ${v2} (${c.ordinalCat})`;
               } else if (c.type === 2 || c.type === 'SUPERLATIVE') {
+                const v1 = formatClueValue(c.targetVal, c.targetCat);
                 let opText = '';
                 if (c.operator === 0) opText = 'LOWEST';
                 else if (c.operator === 1) opText = 'HIGHEST';
                 else if (c.operator === 2) opText = 'NOT LOWEST';
                 else if (c.operator === 3) opText = 'NOT HIGHEST';
-                desc = `${c.targetVal} is the ${opText} in ${c.ordinalCat}`;
+                desc = `${v1} is the ${opText} in ${c.ordinalCat}`;
               } else if (c.type === 3 || c.type === 'UNARY') {
-                desc = `${c.targetVal} is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
+                const v1 = formatClueValue(c.targetVal, c.targetCat);
+                desc = `${v1} is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
               } else if (c.type === 4 || c.type === 'CROSS_ORDINAL') {
+                const v1 = formatClueValue(c.item1Val, c.item1Cat);
+                const v2 = formatClueValue(c.item2Val, c.item2Cat);
                 const formatOffset = (offset: number) => {
                   if (offset === 0) return 'same as'; // Should not happen
                   if (offset === -1) return 'immediately BEFORE';
@@ -729,7 +799,7 @@ function App() {
                   if (offset < 0) return `${Math.abs(offset)} positions BEFORE`;
                   return `${offset} positions AFTER`;
                 };
-                desc = `The item ${formatOffset(c.offset1)} ${c.item1Val} (${c.ordinal1}) is the item ${formatOffset(c.offset2)} ${c.item2Val} (${c.ordinal2})`;
+                desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.ordinal1}) is the item ${formatOffset(c.offset2)} ${v2} (${c.ordinal2})`;
               }
             }
 
@@ -827,22 +897,66 @@ function App() {
               backgroundColor: 'white',
               padding: '20px',
               borderRadius: '12px',
-              width: '80%', /* Match the 10% padding of the bottom section (100 - 10 - 10 = 80) */
-              maxWidth: '1200px', /* Reasonable cap */
+              width: '80%', /* Match the 10% padding of the bottom section */
+              maxWidth: '1200px',
               display: 'flex',
-              justifyContent: 'center',
+              flexDirection: 'column', // Stack controls
+              alignItems: 'center',
               boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
               color: '#333',
               overflowX: 'auto'
             }}>
+              {/* Play Mode Toggle */}
+              {puzzle && (
+                <div className="print-hide" style={{ marginBottom: '15px', display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
+                  <button
+                    onClick={() => setViewMode('solution')}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: viewMode === 'solution' ? '#fff' : 'transparent',
+                      color: viewMode === 'solution' ? '#3b82f6' : '#666',
+                      fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
+                      boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Solution View
+                  </button>
+                  <button
+                    onClick={() => setViewMode('play')}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: viewMode === 'play' ? '#fff' : 'transparent',
+                      color: viewMode === 'play' ? '#10b981' : '#666',
+                      fontWeight: viewMode === 'play' ? 'bold' : 'normal',
+                      boxShadow: viewMode === 'play' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Play Mode
+                  </button>
+                </div>
+              )}
+
               <LogicGridPuzzle
                 grid={displayGrid}
                 categories={categories}
-                targetFact={{
+                targetFact={activeStep >= 1 ? {
                   category1Id: categories[targetCat1Idx]?.id,
                   value1: categories[targetCat1Idx]?.values[targetVal1Idx] as string,
                   category2Id: categories[targetCat2Idx]?.id
-                }}
+                } : undefined}
+
+                // Play Mode Props
+                viewMode={viewMode}
+                userPlayState={userPlayState}
+                onInteract={handleCellInteraction}
               />
             </div>
           )}

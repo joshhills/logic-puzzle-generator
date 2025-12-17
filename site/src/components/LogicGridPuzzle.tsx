@@ -1,5 +1,6 @@
 import React from 'react';
 import { LogicGrid, CategoryConfig } from '../../../src/index';
+import { AppCategoryConfig } from '../types';
 import { ComparisonGrid } from './ComparisonGrid';
 
 interface HoverState {
@@ -14,42 +15,41 @@ interface HoverState {
 }
 
 interface LogicGridPuzzleProps {
-    categories: CategoryConfig[];
+    categories: AppCategoryConfig[];
     grid: LogicGrid;
     targetFact?: {
         category1Id: string;
         value1: string;
         category2Id: string;
     };
+    // Play Mode
+    viewMode?: 'solution' | 'play';
+    userPlayState?: Record<string, 'T' | 'F'>;
+    onInteract?: (c1: string, v1: string | number, c2: string, v2: string | number) => void;
 }
 
-export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact }) => {
+export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact, viewMode = 'solution', userPlayState, onInteract }) => {
     const [activeHover, setActiveHover] = React.useState<HoverState | null>(null);
 
     if (!categories || categories.length < 2) return <div>Invalid Categories</div>;
+
+    // Helper for Date Formatting
+    const formatValue = (val: string | number, cat: AppCategoryConfig) => {
+        if (cat.displayType === 'date') {
+            const num = Number(val);
+            if (!isNaN(num) && num > 0) {
+                // Short format: "Jan 1, 23"
+                return new Date(num).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' });
+            }
+        }
+        return val;
+    };
 
     // 1. Setup Axes
     // Top Axis: C[1] ... C[N-1]
     const topCategories = categories.slice(1);
 
     // Left Axis: C[0], then C[N-1] down to C[2]
-    // Wait, brief said C[N]...C[3]?
-    // Let's look at logic:
-    // If we have A, B, C, D.
-    // Top: B, C, D
-    // Left: A
-    //       D
-    //       C
-
-    // Rows logic:
-    // Row 0 is C[0] ('A'). It compares with Top (B, C, D). -> (A,B), (A,C), (A,D). All valid.
-    // Row 1 is C[3] ('D'). It compares with Top (B, C, D). -> (D,B) valid. (D,C) valid. (D,D) invalid.
-    // Row 2 is C[2] ('C'). It compares with Top (B, C, D). -> (C,B) valid. (C,C) invalid. (C,D) invalid (already done as D,C).
-
-    // So the left axis should be: [C[0], ...categories.slice(2).reverse()]
-    // For N=4 (0,1,2,3): Left = [0, 3, 2]. 
-    // Top = [1, 2, 3].
-
     const leftCategories = [
         categories[0],
         ...categories.slice(2).reverse()
@@ -78,8 +78,9 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end' }}>
                             {cat.values.map((val: string | number, valIndex: number) => {
                                 const active = isHeaderHighlighted('col', i, valIndex);
+                                const displayVal = formatValue(val, cat);
                                 return (
-                                    <div key={String(val)} className="header-cell" style={{
+                                    <div key={valIndex} className="header-cell" style={{
                                         width: `${cellSize}px`,
                                         writingMode: 'vertical-rl',
                                         transform: 'rotate(180deg)',
@@ -96,7 +97,7 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                         fontWeight: active ? 'bold' : 'normal',
                                         borderRadius: '4px'
                                     }}>
-                                        <span style={{ paddingBottom: '4px' }}>{val}</span>
+                                        <span style={{ paddingBottom: '4px' }}>{displayVal}</span>
                                     </div>
                                 );
                             })}
@@ -109,10 +110,11 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                     <React.Fragment key={`row-${rowCat.id}`}>
                         {/* Row Label */}
                         <div style={{
-                            display: 'flex',
-                            flexDirection: 'row', // Side by side
-                            justifyContent: 'flex-end',
-                            alignItems: 'stretch', // Full height
+                            display: 'grid',
+                            gridTemplateColumns: '25px 1fr', // Fixed width for Title
+                            gap: '8px',
+                            justifyContent: 'end',
+                            height: '100%',
                             paddingRight: '10px',
                         }}>
                             {/* Category Name Rotated */}
@@ -121,20 +123,21 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                 transform: 'rotate(180deg)',
                                 fontWeight: 'bold',
                                 textAlign: 'center',
-                                marginRight: '8px',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center'
+                                justifyContent: 'center',
+                                width: '100%' // Force fill
                             }}>
                                 {rowCat.id}
                             </div>
 
                             {/* Values Stack */}
-                            <div style={{ fontSize: '0.8em', color: '#666', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingTop: '2px' }}>
+                            <div style={{ fontSize: '0.8em', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingTop: '2px' }}>
                                 {rowCat.values.map((v: string | number, vIndex: number) => {
                                     const active = isHeaderHighlighted('row', rowIndex, vIndex);
+                                    const displayVal = formatValue(v, rowCat);
                                     return (
-                                        <div key={String(v)} className="header-cell" style={{
+                                        <div key={vIndex} className="header-cell" style={{
                                             height: `${cellSize}px`,
                                             display: 'flex',
                                             alignItems: 'center',
@@ -145,7 +148,8 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                             paddingRight: '4px',
                                             borderRadius: '4px'
                                         }}>
-                                            {v}
+
+                                            {displayVal}
                                         </div>
                                     );
                                 })}
@@ -275,6 +279,11 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                         }}
 
                                         targetFact={targetFact}
+
+                                        // Play Mode
+                                        viewMode={viewMode}
+                                        userPlayState={userPlayState}
+                                        onInteract={onInteract}
                                     />
                                 </div>
                             );

@@ -35,6 +35,11 @@ interface ComparisonGridProps {
         value1: string;
         category2Id: string;
     };
+
+    // Play Mode
+    viewMode?: 'solution' | 'play';
+    userPlayState?: Record<string, 'T' | 'F'>;
+    onInteract?: (c1: string, v1: string | number, c2: string, v2: string | number) => void;
 }
 
 export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
@@ -45,7 +50,10 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
     gridIndexCol,
     activeHover,
     onHover,
-    targetFact
+    targetFact,
+    viewMode = 'solution',
+    userPlayState,
+    onInteract
 }) => {
     const cellSize = 40;
 
@@ -53,7 +61,7 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
     let rowOverlayIndex = -1;
     let colOverlayIndex = -1;
 
-    if (targetFact) {
+    if (targetFact) { // Always show helper target
         // Is this grid relevant? (Cat1 vs Cat2)
         const isCat1Row = rowCategory.id === targetFact.category1Id;
         const isCat2Row = rowCategory.id === targetFact.category2Id;
@@ -88,7 +96,7 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
             }}
             onMouseLeave={() => onHover && onHover(undefined, undefined, undefined, undefined)}
         >
-            {/* Target Overlays */}
+            {/* Target Overlays (Only if visible) */}
             {rowOverlayIndex !== -1 && (
                 <div style={{
                     position: 'absolute',
@@ -118,24 +126,46 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
 
             {rowCategory.values.map((rowVal: string | number, rowValIndex: number) =>
                 colCategory.values.map((colVal: string | number, colValIndex: number) => {
-                    const isPossible = grid.isPossible(rowCategory.id, rowVal, colCategory.id, colVal);
 
                     let content = '';
                     let bgColor = '#fff';
                     let color = '#000';
+                    let isPossible = true;
 
-                    if (!isPossible) {
-                        content = '✕';
-                        color = '#ff6b6b';
-                        bgColor = '#f9f9f9';
-                    } else {
-                        const rowPoss = grid.getPossibilitiesCount(rowCategory.id, rowVal, colCategory.id);
-                        const colPoss = grid.getPossibilitiesCount(colCategory.id, colVal, rowCategory.id);
+                    if (viewMode === 'play') {
+                        // --- PLAY MODE RENDER ---
+                        // Key generation must match App.tsx (Sorted Ids)
+                        const [cA, cB] = [rowCategory.id, colCategory.id].sort();
+                        const [vA, vB] = cA === rowCategory.id ? [rowVal, colVal] : [colVal, rowVal];
+                        const key = `${cA}:${cB}:${vA}:${vB}`;
+                        const userMark = userPlayState?.[key];
 
-                        if (rowPoss === 1 && colPoss === 1) {
+                        if (userMark === 'F') {
+                            content = '✕';
+                            color = '#ef4444'; // Red for X
+                            bgColor = '#fff'; // Keep white background for cleanliness
+                        } else if (userMark === 'T') {
                             content = '✓';
-                            color = '#2ecc71';
-                            bgColor = '#e8f8f5';
+                            color = '#10b981'; // Green for Tick
+                            bgColor = '#ecfdf5'; // Light green bg
+                        }
+                    } else {
+                        // --- SOLUTION MODE RENDER ---
+                        isPossible = grid.isPossible(rowCategory.id, rowVal, colCategory.id, colVal);
+
+                        if (!isPossible) {
+                            content = '✕';
+                            color = '#ff6b6b'; // Light red
+                            bgColor = '#f9f9f9';
+                        } else {
+                            const rowPoss = grid.getPossibilitiesCount(rowCategory.id, rowVal, colCategory.id);
+                            const colPoss = grid.getPossibilitiesCount(colCategory.id, colVal, rowCategory.id);
+
+                            if (rowPoss === 1 && colPoss === 1) {
+                                content = '✓';
+                                color = '#2ecc71';
+                                bgColor = '#e8f8f5';
+                            }
                         }
                     }
 
@@ -167,12 +197,19 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                         }
                     }
 
-                    if ((isRowHighlighted || isColHighlighted) && bgColor === '#fff') {
-                        bgColor = '#e0f2fe';
-                    } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#e8f8f5') {
-                        bgColor = '#d1fae5'; // Darker green if already decided
-                    } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#f9f9f9') {
-                        bgColor = '#fee2e2'; // Darker red if crossed
+                    // Hover color blending
+                    if ((isRowHighlighted || isColHighlighted) && viewMode === 'play') {
+                        if (bgColor === '#fff' || bgColor === '#ecfdf5') {
+                            bgColor = '#f3f4f6'; // Light grey hover
+                        }
+                    } else if (viewMode === 'solution') {
+                        if ((isRowHighlighted || isColHighlighted) && bgColor === '#fff') {
+                            bgColor = '#e0f2fe';
+                        } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#e8f8f5') {
+                            bgColor = '#d1fae5'; // Darker green if already decided
+                        } else if ((isRowHighlighted || isColHighlighted) && bgColor === '#f9f9f9') {
+                            bgColor = '#fee2e2'; // Darker red if crossed
+                        }
                     }
 
                     return (
@@ -181,6 +218,11 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                             className="grid-cell"
                             onMouseEnter={() => {
                                 if (onHover) onHover(rowValIndex, colValIndex, rowVal, colVal);
+                            }}
+                            onClick={() => {
+                                if (viewMode === 'play' && onInteract) {
+                                    onInteract(rowCategory.id, rowVal, colCategory.id, colVal);
+                                }
                             }}
                             style={{
                                 width: '100%',
@@ -192,9 +234,10 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                                 fontSize: '18px',
                                 fontWeight: 'bold',
                                 color: color,
-                                cursor: 'default',
+                                cursor: viewMode === 'play' ? 'pointer' : 'default',
+                                userSelect: 'none'
                             }}
-                            title={`${rowVal} <-> ${colVal}`}
+                            title={viewMode === 'play' ? `Click to cycle: Correct / Incorrect / Empty` : `${rowVal} <-> ${colVal}`}
                         >
                             {content}
                         </div>
