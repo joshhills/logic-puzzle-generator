@@ -9,9 +9,12 @@ interface SidebarProps {
     canReset?: boolean;
     onExport?: () => void;
     onImport?: () => void;
+    onSave?: () => void;
+    onManageSaves?: () => void;
+    isDirty?: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport, onSave, onManageSaves, isDirty = true }) => {
     return (
         <div className="sidebar">
             <div style={{ marginBottom: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -69,21 +72,52 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
             {/* Actions Footer */}
             <div style={{ marginBottom: '20px', padding: '0 5px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {(onExport || onImport) && (
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                        {onImport && <button
-                            onClick={onImport}
-                            title="Import JSON"
-                            style={{ flex: 1, padding: '8px', background: '#222', border: '1px solid #444', color: '#ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85em' }}
-                        >
-                            Import
-                        </button>}
-                        {onExport && <button
-                            onClick={onExport}
-                            title="Export JSON"
-                            style={{ flex: 1, padding: '8px', background: '#222', border: '1px solid #444', color: '#ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85em' }}
-                        >
-                            Export
-                        </button>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            {onSave && <button
+                                onClick={onSave}
+                                disabled={!isDirty}
+                                title={isDirty ? "Quick Save to Browser" : "No changes to save"}
+                                style={{
+                                    flex: 1,
+                                    padding: '10px',
+                                    background: isDirty ? '#10b981' : '#1f4c3a',
+                                    border: 'none',
+                                    color: isDirty ? '#fff' : '#666',
+                                    borderRadius: '6px',
+                                    cursor: isDirty ? 'pointer' : 'default',
+                                    fontSize: '0.9em',
+                                    fontWeight: 'bold',
+                                    transition: 'all 0.2s',
+                                    opacity: isDirty ? 1 : 0.7
+                                }}
+                            >
+                                💾 Save
+                            </button>}
+                            {onManageSaves && <button
+                                onClick={onManageSaves}
+                                title="Manage Saved Games"
+                                style={{ flex: 1, padding: '10px', background: '#333', border: '1px solid #555', color: '#eee', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9em' }}
+                            >
+                                📂 Load
+                            </button>}
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            {onImport && <button
+                                onClick={onImport}
+                                title="Import JSON File"
+                                style={{ flex: 1, padding: '8px', background: '#222', border: '1px solid #444', color: '#ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85em' }}
+                            >
+                                Import
+                            </button>}
+                            {onExport && <button
+                                onClick={onExport}
+                                title="Export JSON File"
+                                style={{ flex: 1, padding: '8px', background: '#222', border: '1px solid #444', color: '#ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85em' }}
+                            >
+                                Export
+                            </button>}
+                        </div>
                     </div>
                 )}
 

@@ -83,6 +83,7 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
 
     return (
         <div
+            className="comparison-grid"
             style={{
                 display: 'grid',
                 gridTemplateColumns: `repeat(${colCategory.values.length}, ${cellSize}px)`,
@@ -96,34 +97,6 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
             }}
             onMouseLeave={() => onHover && onHover(undefined, undefined, undefined, undefined)}
         >
-            {/* Target Overlays (Only if visible) */}
-            {rowOverlayIndex !== -1 && (
-                <div style={{
-                    position: 'absolute',
-                    top: rowOverlayIndex * (cellSize + 1), // +1 for gap
-                    left: 0,
-                    width: '100%',
-                    height: `${cellSize}px`,
-                    border: '3px solid #ef4444',
-                    pointerEvents: 'none', // Allow clicks through
-                    boxSizing: 'border-box',
-                    zIndex: 10
-                }} />
-            )}
-            {colOverlayIndex !== -1 && (
-                <div style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: colOverlayIndex * (cellSize + 1),
-                    height: '100%',
-                    width: `${cellSize}px`,
-                    border: '3px solid #ef4444',
-                    pointerEvents: 'none',
-                    boxSizing: 'border-box',
-                    zIndex: 10
-                }} />
-            )}
-
             {rowCategory.values.map((rowVal: string | number, rowValIndex: number) =>
                 colCategory.values.map((colVal: string | number, colValIndex: number) => {
 
@@ -212,6 +185,40 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                         }
                     }
 
+                    // --- Target Fact Highlight (Cell-Based) ---
+                    let boxShadow = 'none';
+                    if (targetFact) { // Always show helper target
+                        const isRowTarget = (rowOverlayIndex !== -1 && rowValIndex === rowOverlayIndex);
+                        const isColTarget = (colOverlayIndex !== -1 && colValIndex === colOverlayIndex);
+
+                        if (isRowTarget || isColTarget) {
+                            // Build inset shadow
+                            // Top/Bottom (for Row) or Left/Right (for Col)?
+                            // Actually, if it's a ROW target, we want top/bottom borders on ALL cells.
+                            // Left border on first, Right on last.
+
+                            const color = '#ef4444';
+                            const width = '3px';
+                            let shadows = [];
+
+                            if (isRowTarget) {
+                                shadows.push(`inset 0 ${width} 0 0 ${color}`); // Top
+                                shadows.push(`inset 0 -${width} 0 0 ${color}`); // Bottom
+                                if (colValIndex === 0) shadows.push(`inset ${width} 0 0 0 ${color}`); // Left (start of row)
+                                if (colValIndex === colCategory.values.length - 1) shadows.push(`inset -${width} 0 0 0 ${color}`); // Right (end of row)
+                            }
+
+                            if (isColTarget) {
+                                shadows.push(`inset ${width} 0 0 0 ${color}`); // Left
+                                shadows.push(`inset -${width} 0 0 0 ${color}`); // Right
+                                if (rowValIndex === 0) shadows.push(`inset 0 ${width} 0 0 ${color}`); // Top (start of col)
+                                if (rowValIndex === rowCategory.values.length - 1) shadows.push(`inset 0 -${width} 0 0 ${color}`); // Bottom (end of col)
+                            }
+
+                            boxShadow = shadows.join(', ');
+                        }
+                    }
+
                     return (
                         <div
                             key={`${rowVal}-${colVal}`}
@@ -235,7 +242,9 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                                 fontWeight: 'bold',
                                 color: color,
                                 cursor: viewMode === 'play' ? 'pointer' : 'default',
-                                userSelect: 'none'
+                                userSelect: 'none',
+                                boxShadow: boxShadow,
+                                zIndex: (boxShadow !== 'none') ? 1 : 'auto' // Ensure shadow renders above
                             }}
                             title={viewMode === 'play' ? `Click to cycle: Correct / Incorrect / Empty` : `${rowVal} <-> ${colVal}`}
                         >

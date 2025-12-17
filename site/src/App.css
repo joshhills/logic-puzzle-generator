@@ -116,6 +116,12 @@
     color: black !important;
     border-color: #000 !important;
     text-shadow: none !important;
+    /* box-shadow: none !important;  <-- Removed to allow custom print shadows */
+  }
+
+  /* Explicitly remove box-shadow for everything else if needed, or just let specific overrides win */
+  /* But safer to just remove the global nuke if we use shadows for target highlight */
+  *:not(.grid-cell) {
     box-shadow: none !important;
   }
 
@@ -144,7 +150,8 @@
   .step-solution {
     border: none !important;
     margin: 0 !important;
-    padding: 20px 0 !important;
+    padding: 0 !important;
+    /* Removed padding to close gap */
   }
 
   /* Hide the "3. Clues Generated" title but keep target */
@@ -156,6 +163,22 @@
   .clue-row {
     opacity: 1 !important;
     color: black !important;
+    padding: 6px 10px !important;
+    /* Reduced padding */
+    font-size: 0.85rem !important;
+    /* Smaller text */
+    border-bottom: 1px solid #ccc !important;
+    /* Clean separator */
+    break-inside: avoid !important;
+    /* Prevent split across columns/pages */
+    page-break-inside: avoid !important;
+  }
+
+  /* Two-column layout for clues */
+  .clue-list {
+    column-count: 2;
+    column-gap: 40px;
+    width: 100%;
   }
 
   /* Hide the Reroll button container if it shows */
@@ -164,9 +187,14 @@
   }
 
   /* Grid & Table Specifics */
-  .grid-cell,
-  .header-cell {
-    border: 1px solid #000 !important;
+  .grid-cell {
+    border: none !important;
+  }
+
+  .comparison-grid {
+    background-color: #000 !important;
+    gap: 1px !important;
+    border: 2px solid #000 !important;
   }
 
   /* Force exact colors (backgrounds etc) */
@@ -204,6 +232,6 @@
 
   /* Page Break control */
   .main-content>div:first-child {
-    page-break-after: always;
+    page-break-after: auto;
   }
 }

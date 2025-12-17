@@ -5,6 +5,7 @@ import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
+import { SavedGamesModal, SavedPuzzle } from './components/SavedGamesModal';
 import { AppCategoryConfig } from './types';
 
 // Steps: 0=Structure, 1=Goal, 2=Solution
@@ -58,13 +59,26 @@ function App() {
   const [categories, setCategories] = useState<AppCategoryConfig[]>(() => generateDefaultCategories(3, 4));
   const [draftCategories, setDraftCategories] = useState<AppCategoryConfig[] | null>(null);
   const [isEditingCats, setIsEditingCats] = useState(false);
+
+  // Dirty State
+  const [isDirty, setIsDirty] = useState(false);
+  const lastSavedState = useRef<string>('');
+
+  // Modals
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [alertState, setAlertState] = useState<{ isOpen: boolean; title: string; message: string }>({ isOpen: false, title: '', message: '' });
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const showAlert = (title: string, message: string) => {
+    setAlertState({ isOpen: true, title, message });
+  };
 
   // --- Step 2: Goal State ---
   const [targetClueCount, setTargetClueCount] = useState(8);
   const [useTargetClueCount, setUseTargetClueCount] = useState(true);
   const [seedInput, setSeedInput] = useState<string>('');
   const [flavorText, setFlavorText] = useState<string>('');
+  const [puzzleTitle, setPuzzleTitle] = useState<string>('');
 
   // Target Fact Selection
   const [targetCat1Idx, setTargetCat1Idx] = useState(0);
@@ -98,6 +112,45 @@ function App() {
       if (raw) {
         const data = JSON.parse(raw);
         if (data.version === DATA_VERSION) {
+          // ... (hydration logic) ...
+          // We let the standard state setters run. 
+          // The dirty checker effect will run after render and set dirty=true because baseline is empty.
+          // We should probably allow the first effect run to set the baseline?
+          // Or just set baseline here?
+          // Actually, if we just hydration, we probably don't want to force user to save immediately.
+          // BUT, we don't have this complex hydration logic exposed as a function cleanly.
+          // Let's just let it be dirty on first load, or...
+          // Better: In the main dirty check effect, if lastSavedState.current is empty, set it to current?
+          // No, that means any new session starts as "clean". which is probably correct.
+        }
+      } else {
+        // No saved state, fresh start. 
+        // Baseline will be empty string initially. 
+      }
+    } catch (e) {
+      console.error("Failed to load persistence", e);
+    }
+  }, []);
+
+  // Set initial baseline once to avoid immediate dirty state on fresh load
+  useEffect(() => {
+    // Small timeout to allow hydration
+    setTimeout(() => {
+      if (lastSavedState.current === '') {
+        lastSavedState.current = generateCurrentStateString();
+        setIsDirty(false);
+      }
+    }, 500);
+  }, []);
+
+  // Auto-Persist to LocalStorage (throttled)
+  // Persistence: Hydrate on Mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.version === DATA_VERSION) {
           // Restore State
           setActiveStep(data.activeStep ?? 0);
           setNumCats(data.config.numCats);
@@ -109,6 +162,7 @@ function App() {
           setUseTargetClueCount(data.config.useTargetClueCount);
           setSeedInput(data.config.seedInput || '');
           setFlavorText(data.config.flavorText || '');
+          setPuzzleTitle(data.config.puzzleTitle || '');
           setTargetCat1Idx(data.config.targetCat1Idx || 0);
           setTargetVal1Idx(data.config.targetVal1Idx || 0);
           setTargetCat2Idx(data.config.targetCat2Idx || 1);
@@ -286,6 +340,147 @@ function App() {
     window.location.reload();
   };
 
+  // --- Save / Load Logic ---
+  const [isSavesModalOpen, setIsSavesModalOpen] = useState(false);
+  const [savedPuzzles, setSavedPuzzles] = useState<SavedPuzzle[]>([]);
+
+  useEffect(() => {
+    // Load saves list on mount
+    try {
+      const raw = localStorage.getItem('saved_puzzles_list');
+      if (raw) {
+        setSavedPuzzles(JSON.parse(raw));
+      }
+    } catch (e) { console.error("Failed to load saves list", e); }
+  }, []);
+
+  // Helper to get current unique state string
+  const generateCurrentStateString = () => {
+    return JSON.stringify({
+      version: DATA_VERSION,
+      activeStep,
+      maxReachedStep,
+      viewMode,
+      userPlayState,
+      config: {
+        numCats, numItems,
+        targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
+        targetCat1Idx, targetVal1Idx, targetCat2Idx
+      },
+      categories,
+      puzzle
+    });
+  };
+
+  // Check for changes
+  useEffect(() => {
+    // Don't mark as dirty if we haven't initialized the baseline yet
+    if (lastSavedState.current === '') return;
+
+    const current = generateCurrentStateString();
+    setIsDirty(current !== lastSavedState.current);
+  }, [
+    activeStep, maxReachedStep, viewMode, userPlayState,
+    numCats, numItems, targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
+    targetCat1Idx, targetVal1Idx, targetCat2Idx,
+    categories, puzzle
+  ]);
+
+  const handleQuickSave = () => {
+    const currentStateStr = generateCurrentStateString();
+    // Parse it back to object for storage to keep clean structure
+    const state = JSON.parse(currentStateStr);
+    state.timestamp = Date.now(); // Update timestamp
+
+    const newSave: SavedPuzzle = {
+      id: String(Date.now()),
+      title: puzzleTitle || 'Untitled Puzzle',
+      date: Date.now(),
+      preview: `${numCats} Categories, ${numItems} Items`,
+      data: state
+    };
+
+    const newSaves = [newSave, ...savedPuzzles].slice(0, 10);
+    setSavedPuzzles(newSaves);
+    localStorage.setItem('saved_puzzles_list', JSON.stringify(newSaves));
+
+    // Update baseline
+    lastSavedState.current = currentStateStr;
+    setIsDirty(false);
+
+    showAlert('Success', 'Puzzle state saved successfully!');
+  };
+
+  const handleLoadSave = (save: SavedPuzzle) => {
+    try {
+      const data = save.data;
+      // Restore
+      setActiveStep(data.activeStep ?? 0);
+      setMaxReachedStep(data.maxReachedStep ?? 0);
+      setSelectedStep(data.selectedStep ?? -1);
+      setNumCats(data.config.numCats);
+      setNumItems(data.config.numItems);
+      setCategories(data.categories || []);
+
+      setTargetClueCount(data.config.targetClueCount);
+      setUseTargetClueCount(data.config.useTargetClueCount);
+      setSeedInput(data.config.seedInput || '');
+      setFlavorText(data.config.flavorText || '');
+      setPuzzleTitle(data.config.puzzleTitle || '');
+      setTargetCat1Idx(data.config.targetCat1Idx || 0);
+      setTargetVal1Idx(data.config.targetVal1Idx || 0);
+      setTargetCat2Idx(data.config.targetCat2Idx || 1);
+
+      setPuzzle(data.puzzle || null);
+      setViewMode(data.viewMode || 'play');
+      setUserPlayState(data.userPlayState || {});
+
+      // Sync baseline
+      const expectedStateStr = JSON.stringify({
+        version: DATA_VERSION,
+        activeStep: data.activeStep ?? 0,
+        maxReachedStep: data.maxReachedStep ?? 0,
+        viewMode: data.viewMode || 'play',
+        userPlayState: data.userPlayState || {},
+        config: {
+          numCats: data.config.numCats,
+          numItems: data.config.numItems,
+          targetClueCount: data.config.targetClueCount,
+          useTargetClueCount: data.config.useTargetClueCount,
+          seedInput: data.config.seedInput || '',
+          flavorText: data.config.flavorText || '',
+          puzzleTitle: data.config.puzzleTitle || '',
+          targetCat1Idx: data.config.targetCat1Idx || 0,
+          targetVal1Idx: data.config.targetVal1Idx || 0,
+          targetCat2Idx: data.config.targetCat2Idx || 1
+        },
+        categories: data.categories || [],
+        puzzle: data.puzzle || null
+      });
+
+      lastSavedState.current = expectedStateStr;
+      setIsDirty(false);
+      setIsSavesModalOpen(false);
+
+      showAlert('Success', 'Puzzle loaded successfully!');
+    } catch (e) {
+      console.error(e);
+      showAlert('Error', 'Failed to load save.');
+    }
+  };
+
+  const handleDeleteRequest = (id: string) => {
+    setDeleteConfirmId(id);
+  };
+
+  const confirmDeleteSave = () => {
+    if (!deleteConfirmId) return;
+    const newSaves = savedPuzzles.filter(s => s.id !== deleteConfirmId);
+    setSavedPuzzles(newSaves);
+    localStorage.setItem('saved_puzzles_list', JSON.stringify(newSaves));
+    setDeleteConfirmId(null);
+  };
+
   // Play Mode Action
   const handleCellInteraction = (cat1: string, val1: string | number, cat2: string, val2: string | number) => {
     // Always canonicalize key to avoid (A,B) vs (B,A) dupes
@@ -347,7 +542,7 @@ function App() {
         const c1 = categories[targetCat1Idx] || categories[0];
         const c2 = categories[targetCat2Idx] || categories[1];
         if (c1.id === c2.id) {
-          alert("Target Categories must be different.");
+          showAlert("Configuration Error", "Target Categories must be different.");
           setIsGenerating(false);
           return;
         }
@@ -367,7 +562,7 @@ function App() {
         setMaxReachedStep(2);
       } catch (e: any) {
         console.error(e);
-        alert("Generation failed: " + e.message);
+        showAlert("Generation Failed", e.message || "Unknown error occurred.");
       } finally {
         setIsGenerating(false);
       }
@@ -383,29 +578,59 @@ function App() {
   };
 
   // --- JSON Export/Import ---
-  const handleExportJSON = () => {
+  const handleExportJSON = async () => {
     const state = {
       version: DATA_VERSION,
       timestamp: Date.now(),
       activeStep,
       maxReachedStep,
       selectedStep,
+      viewMode,
+      userPlayState,
       config: {
         numCats, numItems,
-        targetClueCount, useTargetClueCount, seedInput, flavorText,
+        targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
         targetCat1Idx, targetVal1Idx, targetCat2Idx
       },
       categories,
       puzzle
     };
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+
+    const jsonStr = JSON.stringify(state, null, 2);
+    const fileName = `logic-puzzle-${new Date().toISOString().slice(0, 10)}.json`;
+
+    try {
+      // Modern File System Access API
+      // @ts-ignore - API might not be in standard lib yet
+      if (window.showSaveFilePicker) {
+        // @ts-ignore
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: 'JSON File',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(jsonStr);
+        await writable.close();
+        return;
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return; // User cancelled
+      console.warn("File System Access API failed, falling back to download.", err);
+    }
+
+    // Fallback: Blob Download
+    const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `logic-puzzle-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
   };
+
 
   const handleImportJSON = () => {
     const input = document.createElement('input');
@@ -419,7 +644,7 @@ function App() {
         try {
           const data = JSON.parse(evt.target.result);
           if (data.version !== DATA_VERSION) {
-            alert("Version mismatch or invalid file.");
+            showAlert("Error", "Version mismatch or invalid file.");
             return;
           }
           // Restore State
@@ -442,10 +667,10 @@ function App() {
           // Puzzle (if any)
           setPuzzle(data.puzzle || null);
 
-          alert("Puzzle loaded successfully!");
+          showAlert("Success", "Puzzle loaded successfully!");
         } catch (err) {
           console.error(err);
-          alert("Failed to parse JSON file.");
+          showAlert("Error", "Failed to parse JSON file.");
         }
       };
       reader.readAsText(file);
@@ -630,6 +855,16 @@ function App() {
             )}
           </div>
           <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'block', marginBottom: '8px' }}>Puzzle Title (Optional)</label>
+            <input
+              type="text"
+              value={puzzleTitle}
+              onChange={(e) => setPuzzleTitle(e.target.value)}
+              placeholder="My Awesome Puzzle"
+              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#222', color: '#fff', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Flavor Text (Intro)</label>
             <div style={{ position: 'relative' }}>
               <textarea
@@ -698,15 +933,31 @@ function App() {
   const renderSolutionStep = () => {
     if (!puzzle) return null;
     // Date Formatting Helper
+    // Date Formatting & Ambiguity Helper
+    const valueCounts = new Map<string, number>();
+    categories.forEach(c => c.values.forEach(v => {
+      const s = String(v);
+      valueCounts.set(s, (valueCounts.get(s) || 0) + 1);
+    }));
+
     const formatClueValue = (val: string | number, catId: string) => {
       const cat = categories.find(ct => ct.id === catId);
+      let displayVal = String(val);
+
       if (cat && cat.displayType === 'date') {
         const num = Number(val);
         if (!isNaN(num) && num > 0) {
-          return new Date(num).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          displayVal = new Date(num).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
         }
       }
-      return String(val);
+
+      // If this value string appears in more than one category, disambiguate it
+      // We check the raw value 'val' because that's what's shared usually (e.g. "10")
+      if ((valueCounts.get(String(val)) || 0) > 1) {
+        return `${displayVal} (${catId})`;
+      }
+
+      return displayVal;
     };
 
     return (
@@ -724,6 +975,7 @@ function App() {
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
+            {puzzleTitle && <h1 className="print-title" style={{ margin: '0 0 10px 0', fontSize: '1.8rem', color: '#fff', lineHeight: 1.2 }}>{puzzleTitle}</h1>}
             <h3 className="print-hide" style={{ margin: 0, color: '#10b981' }}>3. Clues Generated!</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em', marginTop: '5px' }}>
               Target: Find <strong>{categories[targetCat2Idx]?.id}</strong> for <strong>{formatClueValue(categories[targetCat1Idx]?.values[targetVal1Idx], categories[targetCat1Idx]?.id)}</strong> ({categories[targetCat1Idx]?.id})
@@ -740,9 +992,10 @@ function App() {
         </div>
 
         {/* Interactive Clue Scrubber */}
-        <div style={{ padding: '0' }}>
+        <div className="clue-list" style={{ padding: '0' }}>
           {/* Step 0: Start */}
           <div
+            className={!flavorText ? 'print-hide' : ''}
             onClick={() => setSelectedStep(-2)}
             style={{
               padding: '15px 20px',
@@ -875,6 +1128,9 @@ function App() {
         canReset={canReset}
         onExport={handleExportJSON}
         onImport={handleImportJSON}
+        onSave={handleQuickSave}
+        onManageSaves={() => setIsSavesModalOpen(true)}
+        isDirty={isDirty}
       />
 
       <Modal
@@ -883,6 +1139,35 @@ function App() {
         onConfirm={confirmReset}
         title="Reset Application"
         message="Are you sure you want to reset everything? This will clear your current puzzle, settings, and saved data. This action cannot be undone."
+      />
+
+      <SavedGamesModal
+        isOpen={isSavesModalOpen}
+        onClose={() => setIsSavesModalOpen(false)}
+        saves={savedPuzzles}
+        onLoad={handleLoadSave}
+        onDelete={handleDeleteRequest}
+      />
+
+      {/* Generic Alert Modal */}
+      <Modal
+        isOpen={alertState.isOpen}
+        onClose={() => setAlertState({ ...alertState, isOpen: false })}
+        title={alertState.title}
+        message={alertState.message}
+        onConfirm={() => setAlertState({ ...alertState, isOpen: false })}
+        type="alert"
+      />
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteConfirmId}
+        onClose={() => setDeleteConfirmId(null)}
+        title="Delete Save?"
+        message="Are you sure you want to delete this saved puzzle? This cannot be undone."
+        onConfirm={confirmDeleteSave}
+        type="confirm"
+        confirmText="Delete"
       />
 
       <div className="main-content">
@@ -956,7 +1241,9 @@ function App() {
                 // Play Mode Props
                 viewMode={viewMode}
                 userPlayState={userPlayState}
-                onInteract={handleCellInteraction}
+                // Only allow interaction if we have a puzzle AND we are in the Solution/Play step (Step index 2)
+                // We allow playing even during history scrubbing (User Request)
+                onInteract={(puzzle && activeStep >= 2) ? handleCellInteraction : undefined}
               />
             </div>
           )}
