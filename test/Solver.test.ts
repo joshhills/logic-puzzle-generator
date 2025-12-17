@@ -255,4 +255,123 @@ describe('Solver', () => {
         expect(logicGrid.isPossible('Name', 'Charlie', 'Snack', 'Candy')).toBe(true);
         expect(logicGrid.isPossible('Name', 'Charlie', 'Snack', 'Chips')).toBe(false);
     });
+
+    it('should apply NEGATIVE ordinal clues (NOT_BEFORE/NOT_AFTER)', () => {
+        // Alice is NOT BEFORE Bob (Age). So Alice >= Bob.
+        // Ages: 20, 30, 40.
+        // If Bob is 40, Alice must be 40 (conceptually equal allowed by operator, though unique values prevent it usually).
+        // If Alice is 20, she can't be after anyone (unless =).
+        // Let's test pruning:
+        // Alice(20) cannot be >= Bob(40).
+        // Alice(20) cannot be >= Bob(30).
+        // So if Alice is 20, Bob must be 20 (if equal possible) or impossible if distinct.
+
+        const clue: OrdinalClue = {
+            type: ClueType.ORDINAL,
+            operator: OrdinalOperator.NOT_LESS_THAN, // Alice >= Bob
+            item1Cat: 'Name', item1Val: 'Alice',
+            item2Cat: 'Name', item2Val: 'Bob',
+            ordinalCat: 'Age',
+        };
+
+        solver.applyClue(logicGrid, clue);
+
+        // If Alice is 20, Bob must be <= 20. Bob could be 20? 
+        // In standard logic grid, items have unique values. So Alice != Bob. 
+        // LogicGrid doesn't enforce uniqueness per se until "Uniqueness" loop checks distinct assignments.
+        // But solver applies constraints based on POSSIBILITY.
+
+        // Is it possible for Alice=20 and Bob=30? No, 20 is NOT >= 30.
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 20) && logicGrid.isPossible('Name', 'Bob', 'Age', 30)).toBe(true); // Wait. logicGrid.isPossible checks individual cells.
+        // The solver prunes inconsistent possibilities.
+        // It iterates pval1 and checks if there EXISTS a pval2 s.t. pval1 >= pval2.
+
+        // If Alice=20, can Bob be anything <= 20? Only 20.
+        // If uniqueness is assumed later, great. But here 20>=20 is true.
+        // If Alice=20, Bob=20 is valid for this clue.
+
+        // If Alice=20, can Bob be 30? No. 20 < 30.
+        // The default Solver logic we implemented iterates all pairs.
+        // Wait, current Solver logic prunes pval1 if NO pval2 makes the condition true.
+        // If Alice=20, exists Bob=20? Yes. So Alice=20 is NOT pruned.
+
+        // Let's force a better case.
+        // Bob is 30.
+        const clue2: Clue = { type: ClueType.BINARY, operator: BinaryOperator.IS, cat1: 'Name', val1: 'Bob', cat2: 'Age', val2: 30 };
+        solver.applyClue(logicGrid, clue2);
+
+        // Alice >= Bob (30). 
+        // Bob is 30. Uniqueness means Alice != 30.
+        // So Alice must be > 30. i.e. 40.
+
+        solver.applyClue(logicGrid, clue);
+
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 20)).toBe(false);
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 30)).toBe(false); // Pruned by Uniqueness (Bob=30)
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 40)).toBe(true);
+    });
+
+    it('should apply NEGATIVE superlative clues (NOT_MIN/NOT_MAX)', () => {
+        // Alice is NOT the youngest (20).
+        const clue: SuperlativeClue = {
+            type: ClueType.SUPERLATIVE,
+            operator: SuperlativeOperator.NOT_MIN,
+            targetCat: 'Name', targetVal: 'Alice',
+            ordinalCat: 'Age',
+        };
+
+        solver.applyClue(logicGrid, clue);
+
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 20)).toBe(false);
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 30)).toBe(true);
+        expect(logicGrid.isPossible('Name', 'Alice', 'Age', 40)).toBe(true);
+    });
+    it('should apply CROSS_ORDINAL clues', () => {
+        // "The item before Alice (Name) in Age is the item after Chips (Snack) in Age"
+        // Let's set up:
+        // Alice is Name-1 (Age 30). Item before is Age 20.
+        // Chips is Snack-0 (Age 10? No, values are 20,30,40).
+        // Let's use specific setup.
+
+        // Scenario:
+        // Bob (Name) = 30 (Age)
+        // Alice (Name) = 40 (Age)
+        // Charlie (Name) = 20 (Age)
+
+        // Popcorn (Snack) = 20 (Age)
+
+        // Clue: "The item BEFORE Alice (Name) in Age is Popcorn (Snack)"
+        // Alice is 40. Item before is 30. So Popcorn must be 30.
+
+        // Let's supply this clue:
+        // item1: Alice (Name)
+        // ordinal1: Age
+        // offset1: -1 (Before)
+        // item2: Popcorn (Snack)
+        // ordinal2: Age
+        // offset2: 0 (The item itself) -> Wait, currently CrossOrdinal is "Item A + offset = Item B + offset".
+        // Let's check definition. 
+        // "The item BEFORE A ... IS ... B".
+        // item1: Alice, offset1: -1.
+        // item2: Popcorn, offset2: 0.
+
+        const clue: Clue = {
+            type: ClueType.CROSS_ORDINAL,
+            item1Cat: 'Name', item1Val: 'Alice',
+            ordinal1: 'Age', offset1: -1,
+            item2Cat: 'Snack', item2Val: 'Popcorn',
+            ordinal2: 'Age', offset2: 0,
+        } as any;
+
+        // Make Alice = 40
+        solver.applyClue(logicGrid, { type: ClueType.BINARY, operator: BinaryOperator.IS, cat1: 'Name', val1: 'Alice', cat2: 'Age', val2: 40 });
+
+        solver.applyClue(logicGrid, clue);
+
+        // Alice is 40 (Idx 2). Before Alice is Idx 1 (30).
+        // So Popcorn should be 30.
+        expect(logicGrid.isPossible('Snack', 'Popcorn', 'Age', 30)).toBe(true);
+        expect(logicGrid.isPossible('Snack', 'Popcorn', 'Age', 20)).toBe(false);
+        expect(logicGrid.isPossible('Snack', 'Popcorn', 'Age', 40)).toBe(false);
+    });
 });

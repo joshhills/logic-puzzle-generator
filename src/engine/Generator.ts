@@ -1,6 +1,6 @@
 import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact } from '../types';
 import { ConfigurationError } from '../errors';
-import { Clue, ClueType, BinaryClue, BinaryOperator, OrdinalClue, OrdinalOperator, SuperlativeClue, SuperlativeOperator, UnaryClue, UnaryFilter } from './Clue';
+import { Clue, ClueType, BinaryClue, BinaryOperator, OrdinalClue, OrdinalOperator, SuperlativeClue, SuperlativeOperator, UnaryClue, UnaryFilter, CrossOrdinalClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 
@@ -46,6 +46,11 @@ export interface GeneratorOptions {
      * May throw an error if the count is infeasible.
      */
     targetClueCount?: number;
+    /**
+     * Timeout in milliseconds for the generation process.
+     * Default: 10000ms (10s).
+     */
+    timeoutMs?: number;
 }
 
 // A simple seeded PRNG (mulberry32)
@@ -93,12 +98,11 @@ export class Generator {
      * @param target - The specific fact that should be the final deduction of the puzzle.
      * @returns A promise resolving to an object containing the estimated min and max clue counts.
      */
-    public async getClueCountBounds(categories: CategoryConfig[], target: TargetFact): Promise<{ min: number, max: number }> {
-        const ITERATIONS = 10;
+    public getClueCountBounds(categories: CategoryConfig[], target: TargetFact, maxIterations: number = 10): { min: number, max: number } {
         let min = Infinity;
         let max = 0;
 
-        for (let i = 0; i < ITERATIONS; i++) {
+        for (let i = 0; i < maxIterations; i++) {
             // Use temporary generator state for simulation
             const seed = this.seed + i + 1;
             const tempGen = new Generator(seed);
@@ -175,11 +179,34 @@ export class Generator {
             }
         }
 
+        // Initialize Solution & State Maps (REQUIRED for clue generation)
         this.createSolution(categories);
-        let availableClues = this.generateAllPossibleClues(categories);
-        if (targetCount) {
-            return this.generateWithBacktracking(categories, target, targetCount, maxCandidates, strategy);
+
+        // Backtracking Method (Exact Target)
+        if (targetCount !== undefined) {
+            // Feasibility Check:
+            // Run a quick simulation (3 iterations) to see if the target count is realistic.
+            // If the greedy min is 20, and we ask for 12, it's impossible.
+            const bounds = this.getClueCountBounds(categories, target, 3);
+            const MARGIN = 0; // Strict lower bound check?
+
+            if (bounds.min > 0 && targetCount < (bounds.min - MARGIN)) {
+                throw new ConfigurationError(`Target clue count ${targetCount} is likely too low. (Estimated minimum: ${bounds.min}). Try increasing the count.`);
+            }
+
+            // We need an exact count.
+            // Run backtracking search.
+            try {
+                return this.generateWithBacktracking(categories, target, targetCount, maxCandidates, strategy, options?.timeoutMs ?? 10000);
+            } catch (e: any) {
+                // If it failed (timeout or exhausted), fallback?
+                // The user ASKED for exactly N. If we fail, we should probably throw or return best effort?
+                // Current behavior: throw.
+                throw e;
+            }
         }
+
+        let availableClues = this.generateAllPossibleClues(categories);
 
         const logicGrid = new LogicGrid(categories);
 
@@ -284,17 +311,17 @@ export class Generator {
         target: TargetFact,
         targetCount: number,
         maxCandidates: number,
-        strategy: 'standard' | 'min' | 'max'
+        strategy: 'standard' | 'min' | 'max',
+        timeoutMs: number = 10000
     ): Puzzle {
         const availableClues = this.generateAllPossibleClues(categories);
         const logicGrid = new LogicGrid(categories);
 
         // Timeout protection
         const startTime = Date.now();
-        const TIMEOUT_MS = 5000;
 
         const search = (currentGrid: LogicGrid, currentChain: ProofStep[], currentAvailable: Clue[]): ProofStep[] | null => {
-            if (Date.now() - startTime > TIMEOUT_MS) return null;
+            if (Date.now() - startTime > timeoutMs) return null;
 
             // Check if solved
             const isSolved = this.isPuzzleSolved(currentGrid);
@@ -498,25 +525,51 @@ export class Generator {
             for (const targetCat of categories) {
                 if (targetCat.id === ordCategory.id) continue;
 
-                const baseValForMin = this.reverseSolution.get(ordCategory.id)!.get(minVal)!;
-                const itemValForMin = this.valueMap.get(baseValForMin)![targetCat.id];
-                clues.push({
-                    type: ClueType.SUPERLATIVE,
-                    operator: SuperlativeOperator.MIN,
-                    targetCat: targetCat.id,
-                    targetVal: itemValForMin,
-                    ordinalCat: ordCategory.id,
-                } as SuperlativeClue);
+                for (const targetVal of targetCat.values) {
+                    const baseVal = this.reverseSolution.get(targetCat.id)?.get(targetVal);
+                    if (!baseVal) continue;
+                    const mappings = this.valueMap.get(baseVal);
+                    if (!mappings) continue;
 
-                const baseValForMax = this.reverseSolution.get(ordCategory.id)!.get(maxVal)!;
-                const itemValForMax = this.valueMap.get(baseValForMax)![targetCat.id];
-                clues.push({
-                    type: ClueType.SUPERLATIVE,
-                    operator: SuperlativeOperator.MAX,
-                    targetCat: targetCat.id,
-                    targetVal: itemValForMax,
-                    ordinalCat: ordCategory.id,
-                } as SuperlativeClue);
+                    const ordVal = mappings[ordCategory.id] as number;
+
+                    if (ordVal === minVal) {
+                        clues.push({
+                            type: ClueType.SUPERLATIVE,
+                            operator: SuperlativeOperator.MIN,
+                            targetCat: targetCat.id,
+                            targetVal: targetVal,
+                            ordinalCat: ordCategory.id,
+                        } as SuperlativeClue);
+                    } else {
+                        // Valid negative clue: "This item is NOT the lowest"
+                        clues.push({
+                            type: ClueType.SUPERLATIVE,
+                            operator: SuperlativeOperator.NOT_MIN,
+                            targetCat: targetCat.id,
+                            targetVal: targetVal,
+                            ordinalCat: ordCategory.id,
+                        } as SuperlativeClue);
+                    }
+
+                    if (ordVal === maxVal) {
+                        clues.push({
+                            type: ClueType.SUPERLATIVE,
+                            operator: SuperlativeOperator.MAX,
+                            targetCat: targetCat.id,
+                            targetVal: targetVal,
+                            ordinalCat: ordCategory.id,
+                        } as SuperlativeClue);
+                    } else {
+                        clues.push({
+                            type: ClueType.SUPERLATIVE,
+                            operator: SuperlativeOperator.NOT_MAX,
+                            targetCat: targetCat.id,
+                            targetVal: targetVal,
+                            ordinalCat: ordCategory.id,
+                        } as SuperlativeClue);
+                    }
+                }
             }
 
             // Generate OrdinalClues for all pairs of categories
@@ -553,10 +606,28 @@ export class Generator {
                                     item2Val: item2Val,
                                     ordinalCat: ordCategory.id,
                                 } as OrdinalClue);
+                                clues.push({
+                                    type: ClueType.ORDINAL,
+                                    operator: OrdinalOperator.NOT_LESS_THAN, // Not Before
+                                    item1Cat: item1Cat.id,
+                                    item1Val: item1Val,
+                                    item2Cat: item2Cat.id,
+                                    item2Val: item2Val,
+                                    ordinalCat: ordCategory.id,
+                                } as OrdinalClue);
                             } else if (ordVal1 < ordVal2) {
                                 clues.push({
                                     type: ClueType.ORDINAL,
                                     operator: OrdinalOperator.LESS_THAN,
+                                    item1Cat: item1Cat.id,
+                                    item1Val: item1Val,
+                                    item2Cat: item2Cat.id,
+                                    item2Val: item2Val,
+                                    ordinalCat: ordCategory.id,
+                                } as OrdinalClue);
+                                clues.push({
+                                    type: ClueType.ORDINAL,
+                                    operator: OrdinalOperator.NOT_GREATER_THAN, // Not After
                                     item1Cat: item1Cat.id,
                                     item1Val: item1Val,
                                     item2Cat: item2Cat.id,
@@ -613,8 +684,22 @@ export class Generator {
 
     private calculateScore(grid: LogicGrid, target: TargetFact, deductions: number, clue: Clue, previouslySelectedClues: Clue[]): number {
         const clueType = clue.type;
-        const targetValue = this.solution[target.category2Id][target.value1];
-        const isTargetSolved = grid.isPossible(target.category1Id, target.value1, target.category2Id, targetValue) &&
+
+        // Resolve Correct Target Value
+        // If Target is Cat1 -> Cat2
+        // We need to know what Val1 (in Cat1) maps to in Cat2.
+        // Solution is { CatID -> { BaseVal -> ValInCat } }.
+        // We first need the BaseVal for Val1.
+        const baseVal = this.reverseSolution.get(target.category1Id)?.get(target.value1);
+        let targetValue: ValueLabel | undefined;
+
+        if (baseVal !== undefined) {
+            targetValue = this.solution[target.category2Id][baseVal];
+        }
+
+        const isTargetSolved =
+            targetValue !== undefined &&
+            grid.isPossible(target.category1Id, target.value1, target.category2Id, targetValue) &&
             grid.getPossibilitiesCount(target.category1Id, target.value1, target.category2Id) === 1;
 
         const puzzleSolved = this.isPuzzleSolved(grid);
@@ -627,6 +712,7 @@ export class Generator {
             return -1000000; // This clue solves the target too early
         }
 
+
         const synergyScore = deductions;
         const { totalPossible, currentPossible, solutionPossible } = grid.getGridStats();
         const totalEliminatable = totalPossible - solutionPossible;
@@ -635,8 +721,14 @@ export class Generator {
 
         let complexityBonus = 0;
         switch (clueType) {
-            case ClueType.ORDINAL: complexityBonus = 1.5; break;
-            case ClueType.SUPERLATIVE: complexityBonus = 1.2; break;
+            case ClueType.ORDINAL:
+                complexityBonus = 1.5;
+                if ((clue as OrdinalClue).operator >= 2) complexityBonus = 5.0; // Boost Negative Ordinals
+                break;
+            case ClueType.SUPERLATIVE:
+                complexityBonus = 1.2;
+                if ((clue as SuperlativeClue).operator >= 2) complexityBonus = 5.0; // Boost Negative Superlatives
+                break;
             case ClueType.UNARY: complexityBonus = 1.2; break;
             case ClueType.BINARY:
                 complexityBonus = 1.0;
@@ -737,6 +829,30 @@ export class Generator {
                     repetitionScore += 5.0; // Massive penalty for 3-streak
                 }
             }
+
+            // 4. Complexity Variance Penalty (New)
+            const getComplexity = (c: Clue): number => {
+                switch (c.type) {
+                    case ClueType.SUPERLATIVE: return 1; // "Highest" is very direct
+                    case ClueType.BINARY:
+                        // User feedback: Binary IS is equivalent to Superlative (Direct Tick)
+                        return (c as BinaryClue).operator === BinaryOperator.IS ? 1 : 3;
+                    case ClueType.ORDINAL: return 3;
+                    case ClueType.UNARY: return 3;
+                    case ClueType.CROSS_ORDINAL: return 4; // Hardest
+                    default: return 2;
+                }
+            };
+
+            const currentComplexity = getComplexity(clue);
+            const lastComplexity = getComplexity(lastClue);
+
+            if (currentComplexity === lastComplexity) {
+                repetitionScore += 1.5; // Penalize same difficulty level back-to-back
+            }
+
+            // Penalize monotonically increasing/decreasing too fast?
+            // No, just variety is good.
         }
 
         const repetitionPenalty = Math.pow(0.4, repetitionScore);

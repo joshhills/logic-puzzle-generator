@@ -12,6 +12,8 @@ export enum ClueType {
     SUPERLATIVE,
     /** Expresses a property of a single value (e.g., IS EVEN) relative to an ordinal category. */
     UNARY,
+    /** Expresses a relationship between relative positions in two different ordinal categories. */
+    CROSS_ORDINAL,
 }
 
 export enum BinaryOperator {
@@ -22,11 +24,15 @@ export enum BinaryOperator {
 export enum OrdinalOperator {
     GREATER_THAN,
     LESS_THAN,
+    NOT_GREATER_THAN,
+    NOT_LESS_THAN,
 }
 
 export enum SuperlativeOperator {
     MIN,
     MAX,
+    NOT_MIN,
+    NOT_MAX,
 }
 
 export enum UnaryFilter {
@@ -88,4 +94,27 @@ export interface UnaryClue {
     ordinalCat: string;
 }
 
-export type Clue = BinaryClue | OrdinalClue | SuperlativeClue | UnaryClue;
+/**
+ * A clue that links relative positions across two ordinal categories.
+ * Example: "The person immediately before [Item A] in [Cat 1] is the same as the person immediately after [Item B] in [Cat 2]."
+ */
+export interface CrossOrdinalClue {
+    type: ClueType.CROSS_ORDINAL;
+    /** The first anchor entity */
+    item1Cat: string;
+    item1Val: ValueLabel;
+    /** The ordinal category for the first relation */
+    ordinal1: string;
+    /** The offset from the anchor (-1 = before, +1 = after) */
+    offset1: number;
+
+    /** The second anchor entity */
+    item2Cat: string;
+    item2Val: ValueLabel;
+    /** The ordinal category for the second relation */
+    ordinal2: string;
+    /** The offset from the anchor (-1 = before, +1 = after) */
+    offset2: number;
+}
+
+export type Clue = BinaryClue | OrdinalClue | SuperlativeClue | UnaryClue | CrossOrdinalClue;

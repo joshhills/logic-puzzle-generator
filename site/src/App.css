@@ -42,16 +42,52 @@
   .sidebar {
     width: 100%;
     height: auto;
+    max-height: 40vh;
+    /* Limit height so it doesn't take over screen */
     position: relative;
     border-right: none;
     border-bottom: 1px solid #333;
-    flex-direction: row;
-    overflow-x: visible;
-    /* Allow wrap */
-    flex-wrap: wrap;
-    padding: 10px;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    /* Stack vertically as requested */
+    overflow-x: hidden;
+    overflow-y: auto;
+    flex-wrap: nowrap;
+    padding: 15px;
+    align-items: stretch;
+    /* Full width items */
+    gap: 15px;
+    background-color: #1e1e2e;
+  }
+
+  /* Make the header logo row compact */
+  .sidebar>div:first-child {
+    margin-bottom: 0 !important;
+    justify-content: center;
+  }
+
+  /* Make steps container horizontal scrollable if needed, or grid */
+  .sidebar>div:nth-child(2) {
+    flex-direction: row !important;
+    overflow-x: auto;
+    padding-bottom: 5px;
+    /* Optional: custom scrollbar styling if needed */
+  }
+
+  /* Make step items compact */
+  .sidebar>div:nth-child(2)>div {
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  /* Ensure footer actions are visible */
+  .sidebar>div:nth-child(3) {
+    margin-bottom: 0 !important;
+    flex-direction: row !important;
+  }
+
+  /* Hide the footer links on mobile to save space */
+  .sidebar>div:last-child {
+    display: none;
   }
 
   .main-content {

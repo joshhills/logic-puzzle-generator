@@ -15,8 +15,15 @@ The intention is for this library to empower narrative designers to create myste
 ## Features
 
 - **Goal-Oriented Generation**: Targeted generation ensures the puzzle builds towards a specific revelation.
-- **Rich Clue Types**: Supports Binary (IS/IS NOT), Ordinal (Older/Younger), Superlative (Oldest/Youngest), and Unary (Even/Odd) clues.
-- **Proof Chain**: Generates a full step-by-step solution path ("Proof Chain") showing exactly how the puzzle can be solved.
+- **Goal-Oriented Generation**: Targeted generation ensures the puzzle builds towards a specific revelation.
+- **Rich Clue Types**: 
+    - **Binary**: IS / IS NOT
+    - **Ordinal**: Older/Younger + Negative (Not Before/After)
+    - **Cross-Ordinal**: Transitive relationships across different ordinal axes ("The person before Alice in Age is the person after Bob in Height").
+    - **Superlative**: Extremes (Oldest/Youngest) + Negative (Not Oldest).
+    - **Unary**: Properties (Even/Odd).
+- **Complexity Variance**: The generator intelligently varies clue complexity to create a balanced puzzle flow.
+- **Proof Chain**: Generates a full step-by-step solution path ("Proof Chain").
 - **Type-Safe**: Written in TypeScript with comprehensive type definitions.
 - **Configurable**: Define your own categories, values, and constraints.
 
@@ -149,9 +156,10 @@ By default, the generator produces the most efficient puzzle it can find. To tar
 ### Clues
 The generator produces four types of clues:
 1.  **Binary**: Direct relationships. "Alice eats Chips" or "Bob does NOT eat Popcorn".
-2.  **Ordinal**: Comparisons. "The person eating Chips is younger than Bob".
-3.  **Superlative**: Extremes. "Alice is the oldest".
-4.  **Unary**: Properties. "The person eating Chips is an even age".
+2.  **Ordinal**: Comparisons. "The person eating Chips is younger than Bob" or "Alice is NOT older than Charlie".
+3.  **Cross-Ordinal**: Complex relativity. "The item before Alice (Age) is the item after Bob (Cost)".
+4.  **Superlative**: Extremes. "Alice is the oldest" or "Bob is NOT the youngest".
+5.  **Unary**: Properties. "The person eating Chips is an even age".
 
 ### The Proof Chain
 The generator solves the puzzle as it builds it. The `puzzle.proofChain` array contains the optimal order of clues to solve the grid. This is useful for building hint systems or verify difficulty.

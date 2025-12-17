@@ -81,6 +81,9 @@ function App() {
   const [maxReachedStep, setMaxReachedStep] = useState(0);
   const [displayGrid, setDisplayGrid] = useState<LogicGrid | null>(null);
 
+  // UI State
+  const [isGenerating, setIsGenerating] = useState(false);
+
   // --- Effects ---
 
   // Persistence: Hydrate on Mount
@@ -262,51 +265,66 @@ function App() {
     window.location.reload();
   };
 
+  /* eslint-disable react-hooks/exhaustive-deps */
   const handleGenerate = () => {
-    // String Hashing for Seed
-    const getSeed = (input: string): number => {
-      if (!input) return Date.now();
-      const num = Number(input);
-      if (!isNaN(num)) return num;
+    // Prevent double clicking
+    if (isGenerating) return;
 
-      // Simple hash for strings
-      let hash = 0;
-      for (let i = 0; i < input.length; i++) {
-        const char = input.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash |= 0; // Convert to 32bit integer
+    setIsGenerating(true);
+
+    // Use setTimeout to allow the UI to re-render the "Generating..." state
+    // before the heavy synchronous calculation blocks the thread.
+    setTimeout(() => {
+      try {
+        // String Hashing for Seed
+        const getSeed = (input: string): number => {
+          if (!input) return Date.now();
+          const num = Number(input);
+          if (!isNaN(num)) return num;
+
+          // Simple hash for strings
+          let hash = 0;
+          for (let i = 0; i < input.length; i++) {
+            const char = input.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0; // Convert to 32bit integer
+          }
+          return hash;
+        };
+
+        const s = getSeed(seedInput);
+        const gen = new Generator(s);
+
+        const c1 = categories[targetCat1Idx] || categories[0];
+        const c2 = categories[targetCat2Idx] || categories[1];
+        if (c1.id === c2.id) {
+          alert("Target Categories must be different.");
+          setIsGenerating(false);
+          return;
+        }
+        const v1 = c1.values[targetVal1Idx] || c1.values[0];
+
+        const p = gen.generatePuzzle(categories, {
+          category1Id: c1.id,
+          value1: v1,
+          category2Id: c2.id,
+        }, {
+          targetClueCount: useTargetClueCount ? targetClueCount : undefined,
+          timeoutMs: 30000 // Huge timeout as requested
+        });
+        setPuzzle(p);
+        setSelectedStep(-2); // Start at "Step 0" (Instruction)
+        setActiveStep(2);
+        setMaxReachedStep(2);
+      } catch (e: any) {
+        console.error(e);
+        alert("Generation failed: " + e.message);
+      } finally {
+        setIsGenerating(false);
       }
-      return hash;
-    };
-
-    const s = getSeed(seedInput);
-    const gen = new Generator(s);
-
-    const c1 = categories[targetCat1Idx] || categories[0];
-    const c2 = categories[targetCat2Idx] || categories[1];
-    if (c1.id === c2.id) {
-      alert("Target Categories must be different.");
-      return;
-    }
-    const v1 = c1.values[targetVal1Idx] || c1.values[0];
-
-    try {
-      const p = gen.generatePuzzle(categories, {
-        category1Id: c1.id,
-        value1: v1,
-        category2Id: c2.id,
-      }, {
-        targetClueCount: targetClueCount
-      });
-      setPuzzle(p);
-      setSelectedStep(-2); // Start at "Step 0" (Instruction)
-      setActiveStep(2);
-      setMaxReachedStep(2);
-    } catch (e: any) {
-      console.error(e);
-      alert("Generation failed: " + e.message);
-    }
+    }, 100);
   };
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   const maxStep = puzzle ? 2 : Math.min(maxReachedStep, 1);
 
@@ -606,9 +624,21 @@ function App() {
           </div>
           <button
             onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
-            style={{ padding: '10px 20px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', float: 'right', fontWeight: 'bold' }}
+            disabled={isGenerating}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: isGenerating ? '#666' : '#10b981',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: isGenerating ? 'wait' : 'pointer',
+              float: 'right',
+              fontWeight: 'bold',
+              transition: 'background-color 0.2s',
+              opacity: isGenerating ? 0.7 : 1
+            }}
           >
-            Generate Puzzle
+            {isGenerating ? 'Generating...' : 'Generate Puzzle'}
           </button>
           <div style={{ clear: 'both' }}></div>
         </div>
@@ -676,11 +706,30 @@ function App() {
               if (c.type === 0 || c.type === 'BINARY') {
                 desc = `${c.val1} is ${c.operator === 0 ? '' : 'NOT '} ${c.val2}`;
               } else if (c.type === 1 || c.type === 'ORDINAL') {
-                desc = `${c.item1Val} is ${c.operator === 0 ? 'BEFORE' : 'AFTER'} ${c.item2Val} (${c.ordinalCat})`;
+                let opText = '';
+                if (c.operator === 0) opText = 'AFTER';
+                else if (c.operator === 1) opText = 'BEFORE';
+                else if (c.operator === 2) opText = 'NOT AFTER'; // <=
+                else if (c.operator === 3) opText = 'NOT BEFORE'; // >=
+                desc = `${c.item1Val} is ${opText} ${c.item2Val} (${c.ordinalCat})`;
               } else if (c.type === 2 || c.type === 'SUPERLATIVE') {
-                desc = `${c.targetVal} is the ${c.operator === 0 ? 'LOWEST' : 'HIGHEST'} in ${c.ordinalCat}`;
+                let opText = '';
+                if (c.operator === 0) opText = 'LOWEST';
+                else if (c.operator === 1) opText = 'HIGHEST';
+                else if (c.operator === 2) opText = 'NOT LOWEST';
+                else if (c.operator === 3) opText = 'NOT HIGHEST';
+                desc = `${c.targetVal} is the ${opText} in ${c.ordinalCat}`;
               } else if (c.type === 3 || c.type === 'UNARY') {
                 desc = `${c.targetVal} is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
+              } else if (c.type === 4 || c.type === 'CROSS_ORDINAL') {
+                const formatOffset = (offset: number) => {
+                  if (offset === 0) return 'same as'; // Should not happen
+                  if (offset === -1) return 'immediately BEFORE';
+                  if (offset === 1) return 'immediately AFTER';
+                  if (offset < 0) return `${Math.abs(offset)} positions BEFORE`;
+                  return `${offset} positions AFTER`;
+                };
+                desc = `The item ${formatOffset(c.offset1)} ${c.item1Val} (${c.ordinal1}) is the item ${formatOffset(c.offset2)} ${c.item2Val} (${c.ordinal2})`;
               }
             }
 
@@ -722,8 +771,11 @@ function App() {
         </div>
         <div style={{ padding: '20px', textAlign: 'center' }}>
           {!seedInput && (
-            <button onClick={handleGenerate} style={{ padding: '10px 20px', background: 'transparent', color: '#aaa', border: '1px solid #555', borderRadius: '4px', cursor: 'pointer' }}>
-              Reroll with same settings
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating}
+              style={{ padding: '10px 20px', background: 'transparent', color: isGenerating ? '#666' : '#aaa', border: '1px solid #555', borderRadius: '4px', cursor: isGenerating ? 'wait' : 'pointer' }}>
+              {isGenerating ? 'Generating...' : 'Reroll with same settings'}
             </button>
           )}
         </div>

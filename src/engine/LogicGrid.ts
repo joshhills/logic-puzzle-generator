@@ -112,6 +112,11 @@ export class LogicGrid {
      * @returns true if the connection is possible, false otherwise.
      */
     public isPossible(cat1Id: string, val1: ValueLabel, cat2Id: string, val2: ValueLabel): boolean {
+        // Identity check
+        if (cat1Id === cat2Id) {
+            return val1 === val2;
+        }
+
         const val2Index = this.valueMap.get(cat2Id)?.get(val2);
         if (val2Index === undefined) return false;
 

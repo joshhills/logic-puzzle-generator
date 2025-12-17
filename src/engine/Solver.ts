@@ -36,6 +36,9 @@ export class Solver {
             case ClueType.UNARY:
                 deductions += this.applyUnaryClue(grid, clue as UnaryClue);
                 break;
+            case ClueType.CROSS_ORDINAL:
+                deductions += this.applyCrossOrdinalClue(grid, clue as any); // Cast as any because import might lag or circular deps? no, just strict TS.
+                break;
         }
 
 
@@ -46,6 +49,115 @@ export class Solver {
         } while (newDeductions > 0);
 
         return { grid, deductions };
+    }
+
+    private applyCrossOrdinalClue(grid: LogicGrid, clue: import('./Clue').CrossOrdinalClue): number {
+        let deductions = 0;
+        const categories = (grid as any).categories as CategoryConfig[];
+        const ord1Config = categories.find(c => c.id === clue.ordinal1);
+        const ord2Config = categories.find(c => c.id === clue.ordinal2);
+
+        if (!ord1Config || !ord2Config) return 0;
+
+        // Helper to get possible indices for an item in its ordinal category
+        const getPossibleIndices = (itemCat: string, itemVal: ValueLabel, ordCat: string, ordConfig: CategoryConfig) => {
+            return ordConfig.values
+                .map((v, i) => ({ val: v, idx: i }))
+                .filter(v => grid.isPossible(itemCat, itemVal, ordCat, v.val));
+        };
+
+        const eligible1 = getPossibleIndices(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
+        const eligible2 = getPossibleIndices(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
+
+        // Filter 1 based on 2
+        for (const cand1 of eligible1) {
+            const targetIdx1 = cand1.idx + clue.offset1;
+            const targetVal1 = ord1Config.values[targetIdx1];
+
+            // Bounds check
+            if (targetVal1 === undefined) {
+                grid.setPossibility(clue.item1Cat, clue.item1Val, clue.ordinal1, cand1.val, false);
+                deductions++;
+                continue;
+            }
+
+            // Compatibility check
+            // Is there ANY cand2 that maps to a targetVal2 compatible with targetVal1?
+            let supported = false;
+            for (const cand2 of eligible2) {
+                const targetIdx2 = cand2.idx + clue.offset2;
+                const targetVal2 = ord2Config.values[targetIdx2];
+
+                if (targetVal2 !== undefined) {
+                    // Check if (Ord1=TargetVal1) is compatible with (Ord2=TargetVal2)
+                    if (grid.isPossible(clue.ordinal1, targetVal1, clue.ordinal2, targetVal2)) {
+                        supported = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!supported) {
+                grid.setPossibility(clue.item1Cat, clue.item1Val, clue.ordinal1, cand1.val, false);
+                deductions++;
+            }
+        }
+
+        // Filter 2 based on 1 (Symmetric)
+        // Re-read eligible1 in case it shrank? For max deduction, yes. But strict 1-pass is fine for now; loop handles it.
+        // Actually, let's use the potentially filtered list? 
+        // LogicGrid updates in place, so `isPossible` checks inside `getPossibleIndices` would need re-running.
+        // Let's just run the loop on the original capture, the outer `runDeductionLoop` will re-trigger this function if changes happened.
+
+        for (const cand2 of eligible2) {
+            const targetIdx2 = cand2.idx + clue.offset2;
+            const targetVal2 = ord2Config.values[targetIdx2];
+
+            if (targetVal2 === undefined) {
+                grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
+                deductions++;
+                continue;
+            }
+
+            let supported = false;
+            for (const cand1 of eligible1) {
+                const targetIdx1 = cand1.idx + clue.offset1;
+                const targetVal1 = ord1Config.values[targetIdx1];
+
+                if (targetVal1 !== undefined) {
+                    if (grid.isPossible(clue.ordinal1, targetVal1, clue.ordinal2, targetVal2)) {
+                        supported = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!supported) {
+                grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
+                deductions++;
+            }
+        }
+
+        // Lock linkage if unique
+        // We re-query the grid to see resolved state
+        const finalEligible1 = getPossibleIndices(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
+        const finalEligible2 = getPossibleIndices(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
+
+        if (finalEligible1.length === 1 && finalEligible2.length === 1) {
+            const t1 = finalEligible1[0].idx + clue.offset1;
+            const t2 = finalEligible2[0].idx + clue.offset2;
+            const v1 = ord1Config.values[t1];
+            const v2 = ord2Config.values[t2];
+
+            if (v1 !== undefined && v2 !== undefined) {
+                if (grid.getPossibilitiesCount(clue.ordinal1, v1, clue.ordinal2) > 1) {
+                    grid.setPossibility(clue.ordinal1, v1, clue.ordinal2, v2, true);
+                    deductions++;
+                }
+            }
+        }
+
+        return deductions;
     }
 
     private applyUnaryClue(grid: LogicGrid, clue: UnaryClue): number {
@@ -190,8 +302,8 @@ export class Solver {
 
         if (possibleVals1.length === 0 || possibleVals2.length === 0) return 0;
 
+        // --- Item 1 Pruning ---
         if (constraint.operator === OrdinalOperator.GREATER_THAN) { // item1 > item2
-            // Prune item1's possibilities
             for (const pval1 of possibleVals1) {
                 const canBeGreaterThan = possibleVals2.some(pval2 => pval1.idx > pval2.idx);
                 if (!canBeGreaterThan) {
@@ -201,18 +313,7 @@ export class Solver {
                     }
                 }
             }
-            // Prune item2's possibilities
-            for (const pval2 of possibleVals2) {
-                const canBeLessThan = possibleVals1.some(pval1 => pval1.idx > pval2.idx);
-                if (!canBeLessThan) {
-                    if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
-                        grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
-                        deductions++;
-                    }
-                }
-            }
         } else if (constraint.operator === OrdinalOperator.LESS_THAN) { // item1 < item2
-            // Prune item1's possibilities
             for (const pval1 of possibleVals1) {
                 const canBeLessThan = possibleVals2.some(pval2 => pval1.idx < pval2.idx);
                 if (!canBeLessThan) {
@@ -222,9 +323,42 @@ export class Solver {
                     }
                 }
             }
-            // Prune item2's possibilities
+        } else if (constraint.operator === OrdinalOperator.NOT_GREATER_THAN) { // item1 <= item2
+            for (const pval1 of possibleVals1) {
+                const canBeLessOrEqual = possibleVals2.some(pval2 => pval1.idx <= pval2.idx);
+                if (!canBeLessOrEqual) {
+                    if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
+                        grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
+                        deductions++;
+                    }
+                }
+            }
+        } else if (constraint.operator === OrdinalOperator.NOT_LESS_THAN) { // item1 >= item2
+            for (const pval1 of possibleVals1) {
+                const canBeGreaterOrEqual = possibleVals2.some(pval2 => pval1.idx >= pval2.idx);
+                if (!canBeGreaterOrEqual) {
+                    if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
+                        grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
+                        deductions++;
+                    }
+                }
+            }
+        }
+
+        // --- Item 2 Pruning ---
+        if (constraint.operator === OrdinalOperator.GREATER_THAN) { // item2 < item1
             for (const pval2 of possibleVals2) {
-                const canBeGreaterThan = possibleVals1.some(pval1 => pval1.idx < pval2.idx);
+                const canBeLessThan = possibleVals1.some(pval1 => pval2.idx < pval1.idx);
+                if (!canBeLessThan) {
+                    if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
+                        grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
+                        deductions++;
+                    }
+                }
+            }
+        } else if (constraint.operator === OrdinalOperator.LESS_THAN) { // item2 > item1
+            for (const pval2 of possibleVals2) {
+                const canBeGreaterThan = possibleVals1.some(pval1 => pval2.idx > pval1.idx);
                 if (!canBeGreaterThan) {
                     if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
                         grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
@@ -232,20 +366,56 @@ export class Solver {
                     }
                 }
             }
+        } else if (constraint.operator === OrdinalOperator.NOT_GREATER_THAN) { // item2 >= item1
+            for (const pval2 of possibleVals2) {
+                const canBeGreaterOrEqual = possibleVals1.some(pval1 => pval2.idx >= pval1.idx);
+                if (!canBeGreaterOrEqual) {
+                    if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
+                        grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
+                        deductions++;
+                    }
+                }
+            }
+        } else if (constraint.operator === OrdinalOperator.NOT_LESS_THAN) { // item2 <= item1
+            for (const pval2 of possibleVals2) {
+                const canBeLessOrEqual = possibleVals1.some(pval1 => pval2.idx <= pval1.idx);
+                if (!canBeLessOrEqual) {
+                    if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
+                        grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
+                        deductions++;
+                    }
+                }
+            }
         }
+
         return deductions;
     }
-
 
     private applySuperlativeClue(grid: LogicGrid, clue: SuperlativeClue): number {
         const categories = (grid as any).categories as CategoryConfig[];
         const ordinalCatConfig = categories.find(c => c.id === clue.ordinalCat);
         if (!ordinalCatConfig || ordinalCatConfig.type !== CategoryType.ORDINAL) return 0;
 
-        // Assuming values are sorted in ascending order for ordinal categories
-        const extremeValue = clue.operator === SuperlativeOperator.MAX
-            ? ordinalCatConfig.values[ordinalCatConfig.values.length - 1]
-            : ordinalCatConfig.values[0];
+        let extremeValue: ValueLabel;
+        let isNot = false;
+
+        switch (clue.operator) {
+            case SuperlativeOperator.MAX:
+                extremeValue = ordinalCatConfig.values[ordinalCatConfig.values.length - 1];
+                break;
+            case SuperlativeOperator.MIN:
+                extremeValue = ordinalCatConfig.values[0];
+                break;
+            case SuperlativeOperator.NOT_MAX:
+                extremeValue = ordinalCatConfig.values[ordinalCatConfig.values.length - 1];
+                isNot = true;
+                break;
+            case SuperlativeOperator.NOT_MIN:
+                extremeValue = ordinalCatConfig.values[0];
+                isNot = true;
+                break;
+            default: return 0;
+        }
 
         // This clue is essentially a binary IS clue.
         const binaryClue: BinaryClue = {
@@ -254,7 +424,7 @@ export class Solver {
             val1: clue.targetVal,
             cat2: clue.ordinalCat,
             val2: extremeValue,
-            operator: BinaryOperator.IS,
+            operator: isNot ? BinaryOperator.IS_NOT : BinaryOperator.IS,
         };
 
         return this.applyBinaryClue(grid, binaryClue);
