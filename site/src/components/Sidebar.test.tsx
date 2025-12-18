@@ -24,8 +24,8 @@ describe('Sidebar Component', () => {
 
     it('renders export and import buttons if provided', () => {
         render(<Sidebar {...defaultProps} />);
-        expect(screen.getByTitle('Export JSON')).toBeInTheDocument();
-        expect(screen.getByTitle('Import JSON')).toBeInTheDocument();
+        expect(screen.getByTitle('Export JSON File')).toBeInTheDocument();
+        expect(screen.getByTitle('Import JSON File')).toBeInTheDocument();
     });
 
     it('calls onStepSelect when clicking a reachable step', () => {

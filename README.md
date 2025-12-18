@@ -19,10 +19,11 @@ The intention is for this library to empower narrative designers to create myste
 - **Rich Clue Types**: 
     - **Binary**: IS / IS NOT
     - **Ordinal**: Older/Younger + Negative (Not Before/After)
-    - **Cross-Ordinal**: Transitive relationships across different ordinal axes ("The person before Alice in Age is the person after Bob in Height").
+    - **Cross-Ordinal**: Transitive relationships across different ordinal axes + Negated (Match/Not Match).
     - **Superlative**: Extremes (Oldest/Youngest) + Negative (Not Oldest).
     - **Unary**: Properties (Even/Odd).
 - **Complexity Variance**: The generator intelligently varies clue complexity to create a balanced puzzle flow.
+- **Clue Constraints**: Filter which clue types are allowed (e.g., disable Ordinal clues) for custom difficulty.
 - **Proof Chain**: Generates a full step-by-step solution path ("Proof Chain").
 - **Type-Safe**: Written in TypeScript with comprehensive type definitions.
 - **Configurable**: Define your own categories, values, and constraints.

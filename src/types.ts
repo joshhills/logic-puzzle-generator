@@ -39,3 +39,63 @@ export interface TargetFact {
     value1: ValueLabel;
     category2Id: string;
 }
+
+/**
+ * Enumeration of all supported clue types.
+ */
+export enum ClueType {
+    /** Expresses a direct relationship (IS or IS NOT) between two values. */
+    BINARY,
+    /** Expresses a comparison (GREATER THAN or LESS THAN) between two values based on an ordinal category. */
+    ORDINAL,
+    /** Expresses an extreme value relationship (MIN or MAX) within an ordinal category. */
+    SUPERLATIVE,
+    /** Expresses a property of a single value (e.g., IS EVEN) relative to an ordinal category. */
+    UNARY,
+    /** Expresses a relationship between relative positions in two different ordinal categories. */
+    CROSS_ORDINAL,
+}
+
+export enum CrossOrdinalOperator {
+    MATCH,
+    NOT_MATCH,
+}
+
+export enum BinaryOperator {
+    IS,
+    IS_NOT,
+}
+
+export enum OrdinalOperator {
+    GREATER_THAN,
+    LESS_THAN,
+    NOT_GREATER_THAN,
+    NOT_LESS_THAN,
+}
+
+export enum SuperlativeOperator {
+    MIN,
+    MAX,
+    NOT_MIN,
+    NOT_MAX,
+}
+
+export enum UnaryFilter {
+    IS_ODD,
+    IS_EVEN,
+}
+
+/**
+ * Configuration for constraining the types of clues generated.
+ */
+export interface ClueGenerationConstraints {
+    /**
+     * If provided, only clues of these types will be generated.
+     * Use this to control difficulty or puzzle attributes.
+     */
+    allowedClueTypes?: ClueType[];
+
+    // Future extension points:
+    // allowedBinaryOperators?: BinaryOperator[];
+    // allowNegation?: boolean; 
+}

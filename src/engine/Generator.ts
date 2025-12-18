@@ -1,6 +1,6 @@
-import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact } from '../types';
+import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact, ClueGenerationConstraints, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, CrossOrdinalOperator } from '../types';
 import { ConfigurationError } from '../errors';
-import { Clue, ClueType, BinaryClue, BinaryOperator, OrdinalClue, OrdinalOperator, SuperlativeClue, SuperlativeOperator, UnaryClue, UnaryFilter, CrossOrdinalClue } from './Clue';
+import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinalClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 
@@ -51,6 +51,10 @@ export interface GeneratorOptions {
      * Default: 10000ms (10s).
      */
     timeoutMs?: number;
+    /**
+     * Constraints to filter the types of clues generated.
+     */
+    constraints?: ClueGenerationConstraints;
 }
 
 // A simple seeded PRNG (mulberry32)
@@ -126,32 +130,104 @@ export class Generator {
     }
 
     /**
+     * Generates a fully solvable logic puzzle.
+     * @param categories - The categories config.
+     * @param target - Optional target fact. If missing, a random one is synthesized.
+     * @param config - Generation options.
+     */
+    public generatePuzzle(
+        categories: CategoryConfig[],
+        target?: TargetFact,
+        config: GeneratorOptions = {}
+    ): Puzzle {
+        const { targetClueCount = 5, maxCandidates = 50, timeoutMs = 10000 } = config;
+
+        // Validation
+        if (categories.length < 2) throw new ConfigurationError("Must have at least 2 categories.");
+        if (targetClueCount < 1) throw new ConfigurationError("Target clue count must be at least 1");
+        if (maxCandidates < 1) throw new ConfigurationError("maxCandidates must be at least 1");
+
+        // Synthesize Target if Missing
+        let finalTarget = target;
+        if (!finalTarget) {
+            // Pick Random Target
+            const cat1Idx = Math.floor(this.random() * categories.length);
+            let cat2Idx = Math.floor(this.random() * categories.length);
+            while (cat2Idx === cat1Idx) {
+                cat2Idx = Math.floor(this.random() * categories.length);
+            }
+            const c1 = categories[cat1Idx];
+            const c2 = categories[cat2Idx];
+            const valIdx = Math.floor(this.random() * c1.values.length);
+
+            finalTarget = {
+                category1Id: c1.id,
+                value1: c1.values[valIdx],
+                category2Id: c2.id
+            };
+        }
+
+        // Validate target fact
+        const catIds = new Set(categories.map(c => c.id));
+        if (!catIds.has(finalTarget.category1Id) || !catIds.has(finalTarget.category2Id)) {
+            throw new ConfigurationError('Target fact refers to non-existent categories.');
+        }
+        if (finalTarget.category1Id === finalTarget.category2Id) {
+            throw new ConfigurationError('Target fact must refer to two different categories.');
+        }
+
+        return this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints });
+    }
+
+    /**
      * Internal generation method exposed for simulations.
      * @param strategy 'standard' | 'min' | 'max'
      */
-    private internalGenerate(categories: CategoryConfig[], target: TargetFact, strategy: 'standard' | 'min' | 'max', options?: GeneratorOptions): Puzzle {
+    public internalGenerate(categories: CategoryConfig[], target: TargetFact, strategy: 'standard' | 'min' | 'max', options?: GeneratorOptions): Puzzle {
         if (!categories || categories.length < 2) {
             throw new ConfigurationError('At least 2 categories are required to generate a puzzle.');
         }
 
         const maxCandidates = options?.maxCandidates ?? Infinity;
-        const targetCount = options?.targetClueCount; // Will be used later
+        const targetCount = options?.targetClueCount;
+        const constraints = options?.constraints;
 
-        if (maxCandidates < 1) throw new ConfigurationError("maxCandidates must be at least 1");
-
-        // Validate target fact
-        const catIds = new Set(categories.map(c => c.id));
-        if (!catIds.has(target.category1Id) || !catIds.has(target.category2Id)) {
-            throw new ConfigurationError('Target fact refers to non-existent categories.');
-        }
-        if (target.category1Id === target.category2Id) {
-            throw new ConfigurationError('Target fact must refer to two different categories.');
-        }
-
-        // Ensure values exist
+        // Ensure values exist (start of orphan code)
         const cat1 = categories.find(c => c.id === target.category1Id);
         if (cat1 && !cat1.values.includes(target.value1)) {
             throw new ConfigurationError(`Target value '${target.value1}' does not exist in category '${target.category1Id}'.`);
+        }
+
+        // Validate Constraints vs Categories
+        if (constraints?.allowedClueTypes) {
+            const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+            const ordinalDependentTypes = [
+                ClueType.ORDINAL,
+                ClueType.SUPERLATIVE,
+                ClueType.UNARY,
+                ClueType.CROSS_ORDINAL
+            ];
+
+            const requestedOrdinal = constraints.allowedClueTypes.some(t => ordinalDependentTypes.includes(t));
+            const requestedOnlyOrdinal = constraints.allowedClueTypes.every(t => ordinalDependentTypes.includes(t));
+
+            if (requestedOrdinal && !hasOrdinalCategory) {
+                // Optimization: If the user requested ONLY ordinal types, we MUST throw because we can't generate anything.
+                // If they requested Binary + Ordinal, we could just ignore Ordinal, but for explicit configuration, throwing is safer/clearer.
+                // The user said "limit itself to ordinal clues when there are no ordinal categories", which implies strict filtering.
+                // Let's assume if ANY ordinal constraint is enabled but no ordinal category exists, it's a configuration warning/error?
+                // But wait, allowedClueTypes is a whitelist.
+                // If allow=[BINARY, ORDINAL] and no Ordinal categories, we just generate Binary. That is fine.
+                // BUT if allow=[ORDINAL] and no Ordinal categories, we generate NOTHING -> Error.
+
+                // If the allowed types intersection with POSSIBLE types is empty, that's the error.
+                // Possible types with NO ordinal categories = [BINARY].
+                // If allowedClueTypes does NOT include BINARY, then we have 0 possibilities.
+
+                if (!hasOrdinalCategory && !constraints.allowedClueTypes.includes(ClueType.BINARY)) {
+                    throw new ConfigurationError('Invalid Constraints: Ordinal-based clue types were requested, but no Ordinal categories exist. Please add an ordinal category or allow Binary clues.');
+                }
+            }
         }
 
         // Validate Ordinal Categories
@@ -186,27 +262,34 @@ export class Generator {
         if (targetCount !== undefined) {
             // Feasibility Check:
             // Run a quick simulation (3 iterations) to see if the target count is realistic.
-            // If the greedy min is 20, and we ask for 12, it's impossible.
             const bounds = this.getClueCountBounds(categories, target, 3);
-            const MARGIN = 0; // Strict lower bound check?
+            const MARGIN = 0;
 
+            let effectiveTarget = targetCount;
             if (bounds.min > 0 && targetCount < (bounds.min - MARGIN)) {
-                throw new ConfigurationError(`Target clue count ${targetCount} is likely too low. (Estimated minimum: ${bounds.min}). Try increasing the count.`);
+                console.warn(`Target clue count ${targetCount} is too low (Estimated min: ${bounds.min}). Auto-adjusting to ${bounds.min}.`);
+                effectiveTarget = bounds.min;
             }
 
             // We need an exact count.
-            // Run backtracking search.
+            // Run backtracking search with the feasible target.
             try {
-                return this.generateWithBacktracking(categories, target, targetCount, maxCandidates, strategy, options?.timeoutMs ?? 10000);
+                return this.generateWithBacktracking(
+                    categories,
+                    target,
+                    effectiveTarget,
+                    maxCandidates,
+                    strategy,
+                    options?.timeoutMs ?? 10000,
+                    options?.constraints
+                );
             } catch (e: any) {
                 // If it failed (timeout or exhausted), fallback?
-                // The user ASKED for exactly N. If we fail, we should probably throw or return best effort?
-                // Current behavior: throw.
                 throw e;
             }
         }
 
-        let availableClues = this.generateAllPossibleClues(categories);
+        let availableClues = this.generateAllPossibleClues(categories, options?.constraints);
 
         const logicGrid = new LogicGrid(categories);
 
@@ -312,9 +395,10 @@ export class Generator {
         targetCount: number,
         maxCandidates: number,
         strategy: 'standard' | 'min' | 'max',
-        timeoutMs: number = 10000
+        timeoutMs: number = 10000,
+        constraints?: ClueGenerationConstraints
     ): Puzzle {
-        const availableClues = this.generateAllPossibleClues(categories);
+        const availableClues = this.generateAllPossibleClues(categories, constraints);
         const logicGrid = new LogicGrid(categories);
 
         // Timeout protection
@@ -428,17 +512,7 @@ export class Generator {
         };
     }
 
-    /**
-     * Generates a fully solvable logic puzzle based on the provided configuration.
-     *
-     * @param categories - The categories and values to include in the puzzle.
-     * @param target - The specific fact that should be the final deduction of the puzzle.
-     * @param options - Optional configuration for the generation process.
-     * @returns A complete Puzzle object containing the solution, clues, and proof chain.
-     */
-    public generatePuzzle(categories: CategoryConfig[], target: TargetFact, options?: GeneratorOptions): Puzzle {
-        return this.internalGenerate(categories, target, 'standard', options);
-    }
+
 
     private createSolution(categories: CategoryConfig[]): void {
         const baseCategory = categories[0];
@@ -474,46 +548,52 @@ export class Generator {
         }
     }
 
-    private generateAllPossibleClues(categories: CategoryConfig[]): Clue[] {
+    private generateAllPossibleClues(categories: CategoryConfig[], constraints?: ClueGenerationConstraints): Clue[] {
         const clues: Clue[] = [];
         const baseCategory = categories[0];
 
+        // Type Checking Helpers
+        const isAllowed = (type: ClueType) => !constraints?.allowedClueTypes || constraints.allowedClueTypes.includes(type);
+
         // Generate BinaryClues
-        for (const cat1 of categories) {
-            for (const val1 of cat1.values) {
-                for (const cat2 of categories) {
-                    if (cat1.id >= cat2.id) continue;
+        if (isAllowed(ClueType.BINARY)) {
+            for (const cat1 of categories) {
+                for (const val1 of cat1.values) {
+                    for (const cat2 of categories) {
+                        if (cat1.id >= cat2.id) continue;
 
-                    const baseVal = this.reverseSolution.get(cat1.id)?.get(val1);
-                    if (!baseVal) continue;
-                    const mappings = this.valueMap.get(baseVal);
-                    if (!mappings) continue;
+                        const baseVal = this.reverseSolution.get(cat1.id)?.get(val1);
+                        if (!baseVal) continue;
+                        const mappings = this.valueMap.get(baseVal);
+                        if (!mappings) continue;
 
-                    for (const val2 of cat2.values) {
-                        const correctVal2 = mappings[cat2.id];
-                        if (val2 === correctVal2) {
-                            clues.push({
-                                type: ClueType.BINARY,
-                                operator: BinaryOperator.IS,
-                                cat1: cat1.id,
-                                val1: val1,
-                                cat2: cat2.id,
-                                val2: val2,
-                            } as BinaryClue);
-                        } else {
-                            clues.push({
-                                type: ClueType.BINARY,
-                                operator: BinaryOperator.IS_NOT,
-                                cat1: cat1.id,
-                                val1: val1,
-                                cat2: cat2.id,
-                                val2: val2,
-                            } as BinaryClue);
+                        for (const val2 of cat2.values) {
+                            const correctVal2 = mappings[cat2.id];
+                            if (val2 === correctVal2) {
+                                clues.push({
+                                    type: ClueType.BINARY,
+                                    operator: BinaryOperator.IS,
+                                    cat1: cat1.id,
+                                    val1: val1,
+                                    cat2: cat2.id,
+                                    val2: val2,
+                                } as BinaryClue);
+                            } else {
+                                clues.push({
+                                    type: ClueType.BINARY,
+                                    operator: BinaryOperator.IS_NOT,
+                                    cat1: cat1.id,
+                                    val1: val1,
+                                    cat2: cat2.id,
+                                    val2: val2,
+                                } as BinaryClue);
+                            }
                         }
                     }
                 }
             }
         }
+
 
         // Generate Ordinal and SuperlativeClues
         for (const ordCategory of categories.filter(c => c.type === CategoryType.ORDINAL)) {
@@ -522,118 +602,123 @@ export class Generator {
             const maxVal = sortedValues[sortedValues.length - 1];
 
             // Generate SuperlativeClues for all categories
-            for (const targetCat of categories) {
-                if (targetCat.id === ordCategory.id) continue;
+            if (isAllowed(ClueType.SUPERLATIVE)) {
+                for (const targetCat of categories) {
+                    if (targetCat.id === ordCategory.id) continue;
 
-                for (const targetVal of targetCat.values) {
-                    const baseVal = this.reverseSolution.get(targetCat.id)?.get(targetVal);
-                    if (!baseVal) continue;
-                    const mappings = this.valueMap.get(baseVal);
-                    if (!mappings) continue;
+                    for (const targetVal of targetCat.values) {
+                        const baseVal = this.reverseSolution.get(targetCat.id)?.get(targetVal);
+                        if (!baseVal) continue;
+                        const mappings = this.valueMap.get(baseVal);
+                        if (!mappings) continue;
 
-                    const ordVal = mappings[ordCategory.id] as number;
+                        const ordVal = mappings[ordCategory.id] as number;
 
-                    if (ordVal === minVal) {
-                        clues.push({
-                            type: ClueType.SUPERLATIVE,
-                            operator: SuperlativeOperator.MIN,
-                            targetCat: targetCat.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as SuperlativeClue);
-                    } else {
-                        // Valid negative clue: "This item is NOT the lowest"
-                        clues.push({
-                            type: ClueType.SUPERLATIVE,
-                            operator: SuperlativeOperator.NOT_MIN,
-                            targetCat: targetCat.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as SuperlativeClue);
-                    }
+                        if (ordVal === minVal) {
+                            clues.push({
+                                type: ClueType.SUPERLATIVE,
+                                operator: SuperlativeOperator.MIN,
+                                targetCat: targetCat.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as SuperlativeClue);
+                        } else {
+                            // Valid negative clue: "This item is NOT the lowest"
+                            clues.push({
+                                type: ClueType.SUPERLATIVE,
+                                operator: SuperlativeOperator.NOT_MIN,
+                                targetCat: targetCat.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as SuperlativeClue);
+                        }
 
-                    if (ordVal === maxVal) {
-                        clues.push({
-                            type: ClueType.SUPERLATIVE,
-                            operator: SuperlativeOperator.MAX,
-                            targetCat: targetCat.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as SuperlativeClue);
-                    } else {
-                        clues.push({
-                            type: ClueType.SUPERLATIVE,
-                            operator: SuperlativeOperator.NOT_MAX,
-                            targetCat: targetCat.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as SuperlativeClue);
+                        if (ordVal === maxVal) {
+                            clues.push({
+                                type: ClueType.SUPERLATIVE,
+                                operator: SuperlativeOperator.MAX,
+                                targetCat: targetCat.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as SuperlativeClue);
+                        } else {
+                            clues.push({
+                                type: ClueType.SUPERLATIVE,
+                                operator: SuperlativeOperator.NOT_MAX,
+                                targetCat: targetCat.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as SuperlativeClue);
+                        }
                     }
                 }
             }
 
+
             // Generate OrdinalClues for all pairs of categories
-            for (const item1Cat of categories) {
-                if (item1Cat.id === ordCategory.id) continue;
-                for (const item2Cat of categories) {
-                    if (item2Cat.id === ordCategory.id) continue;
+            if (isAllowed(ClueType.ORDINAL)) {
+                for (const item1Cat of categories) {
+                    if (item1Cat.id === ordCategory.id) continue;
+                    for (const item2Cat of categories) {
+                        if (item2Cat.id === ordCategory.id) continue;
 
-                    for (const item1Val of item1Cat.values) {
-                        for (const item2Val of item2Cat.values) {
-                            if (item1Cat.id === item2Cat.id && item1Val === item2Val) continue;
+                        for (const item1Val of item1Cat.values) {
+                            for (const item2Val of item2Cat.values) {
+                                if (item1Cat.id === item2Cat.id && item1Val === item2Val) continue;
 
-                            const baseVal1 = this.reverseSolution.get(item1Cat.id)?.get(item1Val);
-                            const baseVal2 = this.reverseSolution.get(item2Cat.id)?.get(item2Val);
-                            if (!baseVal1 || !baseVal2) continue;
+                                const baseVal1 = this.reverseSolution.get(item1Cat.id)?.get(item1Val);
+                                const baseVal2 = this.reverseSolution.get(item2Cat.id)?.get(item2Val);
+                                if (!baseVal1 || !baseVal2) continue;
 
-                            // if they are the same entity, don't compare
-                            if (baseVal1 === baseVal2) continue;
+                                // if they are the same entity, don't compare
+                                if (baseVal1 === baseVal2) continue;
 
-                            const mappings1 = this.valueMap.get(baseVal1);
-                            const mappings2 = this.valueMap.get(baseVal2);
-                            if (!mappings1 || !mappings2) continue;
+                                const mappings1 = this.valueMap.get(baseVal1);
+                                const mappings2 = this.valueMap.get(baseVal2);
+                                if (!mappings1 || !mappings2) continue;
 
-                            const ordVal1 = mappings1[ordCategory.id] as number;
-                            const ordVal2 = mappings2[ordCategory.id] as number;
+                                const ordVal1 = mappings1[ordCategory.id] as number;
+                                const ordVal2 = mappings2[ordCategory.id] as number;
 
-                            if (ordVal1 > ordVal2) {
-                                clues.push({
-                                    type: ClueType.ORDINAL,
-                                    operator: OrdinalOperator.GREATER_THAN,
-                                    item1Cat: item1Cat.id,
-                                    item1Val: item1Val,
-                                    item2Cat: item2Cat.id,
-                                    item2Val: item2Val,
-                                    ordinalCat: ordCategory.id,
-                                } as OrdinalClue);
-                                clues.push({
-                                    type: ClueType.ORDINAL,
-                                    operator: OrdinalOperator.NOT_LESS_THAN, // Not Before
-                                    item1Cat: item1Cat.id,
-                                    item1Val: item1Val,
-                                    item2Cat: item2Cat.id,
-                                    item2Val: item2Val,
-                                    ordinalCat: ordCategory.id,
-                                } as OrdinalClue);
-                            } else if (ordVal1 < ordVal2) {
-                                clues.push({
-                                    type: ClueType.ORDINAL,
-                                    operator: OrdinalOperator.LESS_THAN,
-                                    item1Cat: item1Cat.id,
-                                    item1Val: item1Val,
-                                    item2Cat: item2Cat.id,
-                                    item2Val: item2Val,
-                                    ordinalCat: ordCategory.id,
-                                } as OrdinalClue);
-                                clues.push({
-                                    type: ClueType.ORDINAL,
-                                    operator: OrdinalOperator.NOT_GREATER_THAN, // Not After
-                                    item1Cat: item1Cat.id,
-                                    item1Val: item1Val,
-                                    item2Cat: item2Cat.id,
-                                    item2Val: item2Val,
-                                    ordinalCat: ordCategory.id,
-                                } as OrdinalClue);
+                                if (ordVal1 > ordVal2) {
+                                    clues.push({
+                                        type: ClueType.ORDINAL,
+                                        operator: OrdinalOperator.GREATER_THAN,
+                                        item1Cat: item1Cat.id,
+                                        item1Val: item1Val,
+                                        item2Cat: item2Cat.id,
+                                        item2Val: item2Val,
+                                        ordinalCat: ordCategory.id,
+                                    } as OrdinalClue);
+                                    clues.push({
+                                        type: ClueType.ORDINAL,
+                                        operator: OrdinalOperator.NOT_LESS_THAN, // Not Before
+                                        item1Cat: item1Cat.id,
+                                        item1Val: item1Val,
+                                        item2Cat: item2Cat.id,
+                                        item2Val: item2Val,
+                                        ordinalCat: ordCategory.id,
+                                    } as OrdinalClue);
+                                } else if (ordVal1 < ordVal2) {
+                                    clues.push({
+                                        type: ClueType.ORDINAL,
+                                        operator: OrdinalOperator.LESS_THAN,
+                                        item1Cat: item1Cat.id,
+                                        item1Val: item1Val,
+                                        item2Cat: item2Cat.id,
+                                        item2Val: item2Val,
+                                        ordinalCat: ordCategory.id,
+                                    } as OrdinalClue);
+                                    clues.push({
+                                        type: ClueType.ORDINAL,
+                                        operator: OrdinalOperator.NOT_GREATER_THAN, // Not After
+                                        item1Cat: item1Cat.id,
+                                        item1Val: item1Val,
+                                        item2Cat: item2Cat.id,
+                                        item2Val: item2Val,
+                                        ordinalCat: ordCategory.id,
+                                    } as OrdinalClue);
+                                }
                             }
                         }
                     }
@@ -641,39 +726,42 @@ export class Generator {
             }
         }
 
+
         // Generate UnaryClues
-        for (const ordCategory of categories) {
-            if (ordCategory.type !== CategoryType.ORDINAL) continue;
-            // Check if all values are numbers
-            if (!ordCategory.values.every(v => typeof v === 'number')) continue;
+        if (isAllowed(ClueType.UNARY)) {
+            for (const ordCategory of categories) {
+                if (ordCategory.type !== CategoryType.ORDINAL) continue;
+                // Check if all values are numbers
+                if (!ordCategory.values.every(v => typeof v === 'number')) continue;
 
-            for (const targetCategory of categories) {
-                if (targetCategory.id === ordCategory.id) continue;
+                for (const targetCategory of categories) {
+                    if (targetCategory.id === ordCategory.id) continue;
 
-                for (const targetVal of targetCategory.values) {
-                    const baseVal = this.reverseSolution.get(targetCategory.id)?.get(targetVal);
-                    if (!baseVal) continue;
-                    const mappings = this.valueMap.get(baseVal);
-                    if (!mappings) continue;
+                    for (const targetVal of targetCategory.values) {
+                        const baseVal = this.reverseSolution.get(targetCategory.id)?.get(targetVal);
+                        if (!baseVal) continue;
+                        const mappings = this.valueMap.get(baseVal);
+                        if (!mappings) continue;
 
-                    const ordValue = mappings[ordCategory.id] as number;
+                        const ordValue = mappings[ordCategory.id] as number;
 
-                    if (ordValue % 2 === 0) {
-                        clues.push({
-                            type: ClueType.UNARY,
-                            filter: UnaryFilter.IS_EVEN,
-                            targetCat: targetCategory.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as UnaryClue);
-                    } else {
-                        clues.push({
-                            type: ClueType.UNARY,
-                            filter: UnaryFilter.IS_ODD,
-                            targetCat: targetCategory.id,
-                            targetVal: targetVal,
-                            ordinalCat: ordCategory.id,
-                        } as UnaryClue);
+                        if (ordValue % 2 === 0) {
+                            clues.push({
+                                type: ClueType.UNARY,
+                                filter: UnaryFilter.IS_EVEN,
+                                targetCat: targetCategory.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as UnaryClue);
+                        } else {
+                            clues.push({
+                                type: ClueType.UNARY,
+                                filter: UnaryFilter.IS_ODD,
+                                targetCat: targetCategory.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCategory.id,
+                            } as UnaryClue);
+                        }
                     }
                 }
             }
@@ -703,6 +791,23 @@ export class Generator {
             grid.getPossibilitiesCount(target.category1Id, target.value1, target.category2Id) === 1;
 
         const puzzleSolved = this.isPuzzleSolved(grid);
+
+        // BAN DIRECT TARGET CLUES
+        // If the clue is literally "Subject IS Answer", it's too easy/boring.
+        // We want the target to be deduced, not stated.
+        if (clue.type === ClueType.BINARY && (clue as BinaryClue).operator === BinaryOperator.IS) {
+            const bc = clue as BinaryClue;
+            // Check Forward
+            if (bc.cat1 === target.category1Id && bc.val1 === target.value1 &&
+                bc.cat2 === target.category2Id && bc.val2 === targetValue) {
+                return -Infinity;
+            }
+            // Check Reverse (if target was defined backwards)
+            if (bc.cat1 === target.category2Id && bc.val1 === targetValue &&
+                bc.cat2 === target.category1Id && bc.val2 === target.value1) {
+                return -Infinity;
+            }
+        }
 
         if (isTargetSolved && puzzleSolved) {
             return 1000000; // This is the winning clue

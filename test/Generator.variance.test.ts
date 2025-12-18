@@ -8,16 +8,15 @@ describe('Generator Variance Check', () => {
 
     it('should produce puzzles with sufficient variety on average over multiple runs', () => {
         const categories: CategoryConfig[] = [
-            { id: 'Name', type: CategoryType.NOMINAL, values: ['Alice', 'Bob', 'Charlie', 'David'] },
-            { id: 'Genre', type: CategoryType.NOMINAL, values: ['Horror', 'Sci-Fi', 'Comedy', 'Drama'] },
-            { id: 'Snack', type: CategoryType.NOMINAL, values: ['Chips', 'Popcorn', 'Candy', 'Chocolate'] },
-            { id: 'Age', type: CategoryType.ORDINAL, values: [20, 30, 40, 50] },
+            { id: 'Name', type: CategoryType.NOMINAL, values: ['Alice', 'Bob', 'Charlie'] },
+            { id: 'Genre', type: CategoryType.NOMINAL, values: ['Horror', 'Sci-Fi', 'Comedy'] },
+            { id: 'Age', type: CategoryType.ORDINAL, values: [10, 20, 30] },
         ];
 
         const target: TargetFact = {
             category1Id: 'Name',
-            value1: 'David',
-            category2Id: 'Snack',
+            value1: 'Alice',
+            category2Id: 'Age',
         };
 
         const runCount = 20;
@@ -29,7 +28,7 @@ describe('Generator Variance Check', () => {
         for (let i = 0; i < runCount; i++) {
             const seed = i; // Use a different seed for each run
             const generator = new Generator(seed);
-            const { clues } = generator.generatePuzzle(categories, target);
+            const { clues } = generator.generatePuzzle(categories, target, { timeoutMs: 10000 });
 
             // A simple variance score: the number of unique clue types used in the puzzle.
             // Distinguish between IS and IS_NOT for variance

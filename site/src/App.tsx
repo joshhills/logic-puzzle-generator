@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver } from '../../src/index';
+import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType } from '../../src/index';
 import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
 import { SavedGamesModal, SavedPuzzle } from './components/SavedGamesModal';
 import { AppCategoryConfig } from './types';
+import { getRecommendedBounds } from './constants/DifficultyBounds';
 
 // Steps: 0=Structure, 1=Goal, 2=Solution
 const STEPS = ['Structure', 'Goal', 'Solution'];
@@ -84,6 +85,17 @@ function App() {
   const [targetCat1Idx, setTargetCat1Idx] = useState(0);
   const [targetVal1Idx, setTargetVal1Idx] = useState(0);
   const [targetCat2Idx, setTargetCat2Idx] = useState(1);
+
+  const [useSpecificGoal, setUseSpecificGoal] = useState(true);
+
+  // Clue Constraints
+  const [allowedClueTypes, setAllowedClueTypes] = useState<ClueType[]>([
+    ClueType.BINARY,
+    ClueType.ORDINAL,
+    ClueType.SUPERLATIVE,
+    ClueType.UNARY,
+    ClueType.CROSS_ORDINAL
+  ]);
 
   // --- Step 3: Solution State ---
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -166,6 +178,8 @@ function App() {
           setTargetCat1Idx(data.config.targetCat1Idx || 0);
           setTargetVal1Idx(data.config.targetVal1Idx || 0);
           setTargetCat2Idx(data.config.targetCat2Idx || 1);
+          setUseSpecificGoal(data.config.useSpecificGoal ?? true);
+
 
           // Puzzle (if any)
           if (data.puzzle) {
@@ -202,7 +216,7 @@ function App() {
         config: {
           numCats, numItems,
           targetClueCount, useTargetClueCount, seedInput, flavorText,
-          targetCat1Idx, targetVal1Idx, targetCat2Idx
+          targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
         },
         categories,
         puzzle,
@@ -216,7 +230,7 @@ function App() {
     activeStep, maxReachedStep, selectedStep,
     numCats, numItems, categories,
     targetClueCount, useTargetClueCount, seedInput, flavorText,
-    targetCat1Idx, targetVal1Idx, targetCat2Idx,
+    targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
     puzzle, viewMode, userPlayState
   ]);
 
@@ -277,6 +291,18 @@ function App() {
     }
   }, [activeStep]);
 
+  // Strict Bounds Enforcement
+  // Ensure we never stay out of bounds even if state was persisted or default logic missed it
+  useEffect(() => {
+    const bounds = getRecommendedBounds(numCats, numItems);
+    if (targetClueCount < bounds.min) {
+      setTargetClueCount(bounds.min);
+    } else if (targetClueCount > bounds.max) {
+      // Optional: don't strictly enforce max? Max is "useful", not "possible".
+      // But let's enforce min strictly.
+    }
+  }, [numCats, numItems, targetClueCount]);
+
   // --- Actions ---
 
   const handleStructureChange = (nC: number, nI: number) => {
@@ -289,6 +315,12 @@ function App() {
     // Reset targets
     if (targetCat1Idx >= nC) setTargetCat1Idx(0);
     if (targetCat2Idx >= nC) setTargetCat2Idx(1);
+
+    // Heuristic: Use precomputed bounds
+    const bounds = getRecommendedBounds(nC, nI);
+    // Safe default: Average of min/max, rounded
+    const defaultClues = Math.floor((bounds.min + bounds.max) / 2);
+    setTargetClueCount(defaultClues);
 
     // Reset puzzle if structure changes
     setPuzzle(null);
@@ -315,6 +347,13 @@ function App() {
   const handleSaveCategories = () => {
     if (draftCategories) {
       setCategories(draftCategories);
+
+      // Update structure state to match the edit
+      const nC = draftCategories.length;
+      const nI = nC > 0 ? draftCategories[0].values.length : 4;
+      setNumCats(nC);
+      setNumItems(nI);
+
       setDraftCategories(null); // Clear draft
       setIsEditingCats(false);
 
@@ -365,7 +404,7 @@ function App() {
       config: {
         numCats, numItems,
         targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
-        targetCat1Idx, targetVal1Idx, targetCat2Idx
+        targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
       },
       categories,
       puzzle
@@ -382,7 +421,7 @@ function App() {
   }, [
     activeStep, maxReachedStep, viewMode, userPlayState,
     numCats, numItems, targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
-    targetCat1Idx, targetVal1Idx, targetCat2Idx,
+    targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
     categories, puzzle
   ]);
 
@@ -430,6 +469,7 @@ function App() {
       setTargetCat1Idx(data.config.targetCat1Idx || 0);
       setTargetVal1Idx(data.config.targetVal1Idx || 0);
       setTargetCat2Idx(data.config.targetCat2Idx || 1);
+      setUseSpecificGoal(data.config.useSpecificGoal ?? true);
 
       setPuzzle(data.puzzle || null);
       setViewMode(data.viewMode || 'play');
@@ -452,7 +492,8 @@ function App() {
           puzzleTitle: data.config.puzzleTitle || '',
           targetCat1Idx: data.config.targetCat1Idx || 0,
           targetVal1Idx: data.config.targetVal1Idx || 0,
-          targetCat2Idx: data.config.targetCat2Idx || 1
+          targetCat2Idx: data.config.targetCat2Idx || 1,
+          useSpecificGoal: data.config.useSpecificGoal ?? true
         },
         categories: data.categories || [],
         puzzle: data.puzzle || null
@@ -548,15 +589,27 @@ function App() {
         }
         const v1 = c1.values[targetVal1Idx] || c1.values[0];
 
-        const p = gen.generatePuzzle(categories, {
+        const targetFact = useSpecificGoal ? {
           category1Id: c1.id,
           value1: v1,
           category2Id: c2.id,
-        }, {
+        } : undefined;
+
+        const p = gen.generatePuzzle(categories, targetFact, {
           targetClueCount: useTargetClueCount ? targetClueCount : undefined,
-          timeoutMs: 30000 // Huge timeout as requested
+          timeoutMs: 30000,
+          constraints: { allowedClueTypes }
         });
         setPuzzle(p);
+
+        // Notify if auto-adjusted
+        if (useTargetClueCount && p.clues.length !== targetClueCount) {
+          showAlert(
+            "Clue Count Adjusted",
+            `Requested ${targetClueCount} clues, but this puzzle required a minimum of ${p.clues.length}.`
+          );
+        }
+
         setSelectedStep(-2); // Start at "Step 0" (Instruction)
         setActiveStep(2);
         setMaxReachedStep(2);
@@ -590,7 +643,7 @@ function App() {
       config: {
         numCats, numItems,
         targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
-        targetCat1Idx, targetVal1Idx, targetCat2Idx
+        targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
       },
       categories,
       puzzle
@@ -663,6 +716,7 @@ function App() {
           setTargetCat1Idx(data.config.targetCat1Idx || 0);
           setTargetVal1Idx(data.config.targetVal1Idx || 0);
           setTargetCat2Idx(data.config.targetCat2Idx || 1);
+          setUseSpecificGoal(data.config.useSpecificGoal ?? true);
 
           // Puzzle (if any)
           setPuzzle(data.puzzle || null);
@@ -782,56 +836,73 @@ function App() {
       {activeStep === 1 && (
         <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
           <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
-            <div style={{ fontSize: '0.9em', color: '#888', marginBottom: '10px', textTransform: 'uppercase', letterSpacing: '1px' }}>Puzzle Objective</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '1.1em' }}>
-              <span>For the group where</span>
-
-              <select
-                value={targetCat1Idx}
-                onChange={e => {
-                  const newVal = Number(e.target.value);
-                  setTargetCat1Idx(newVal);
-                  if (newVal === targetCat2Idx) {
-                    setTargetCat2Idx(targetCat1Idx);
-                  }
-                }}
-                style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-              >
-                {categories.map((c, i) => (
-                  <option key={i} value={i}>{c.id}</option>
-                ))}
-              </select>
-
-              <span>is</span>
-
-              <select
-                value={targetVal1Idx}
-                onChange={e => setTargetVal1Idx(Number(e.target.value))}
-                style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-              >
-                {categories[targetCat1Idx]?.values.map((v, i) => (
-                  <option key={i} value={i}>{v}</option>
-                ))}
-              </select>
-
-              <span>, find the</span>
-
-              <select
-                value={targetCat2Idx}
-                onChange={e => {
-                  const newVal = Number(e.target.value);
-                  setTargetCat2Idx(newVal);
-                  if (newVal === targetCat1Idx) {
-                    setTargetCat1Idx(targetCat2Idx);
-                  }
-                }}
-                style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-              >
-                {categories.map((c, i) => (
-                  <option key={i} value={i}>{c.id}</option>
-                ))}
-              </select>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>Puzzle Objective</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9em', color: '#aaa' }}>
+                <input
+                  type="checkbox"
+                  checked={useSpecificGoal}
+                  onChange={(e) => setUseSpecificGoal(e.target.checked)}
+                />
+                Define Specific Goal
+              </label>
             </div>
+
+            {useSpecificGoal ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '1.1em' }}>
+                <span>For the group where</span>
+
+                <select
+                  value={targetCat1Idx}
+                  onChange={e => {
+                    const newVal = Number(e.target.value);
+                    setTargetCat1Idx(newVal);
+                    if (newVal === targetCat2Idx) {
+                      setTargetCat2Idx(targetCat1Idx);
+                    }
+                  }}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories.map((c, i) => (
+                    <option key={i} value={i}>{c.id}</option>
+                  ))}
+                </select>
+
+                <span>is</span>
+
+                <select
+                  value={targetVal1Idx}
+                  onChange={e => setTargetVal1Idx(Number(e.target.value))}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories[targetCat1Idx]?.values.map((v, i) => (
+                    <option key={i} value={i}>{v}</option>
+                  ))}
+                </select>
+
+                <span>, find the</span>
+
+                <select
+                  value={targetCat2Idx}
+                  onChange={e => {
+                    const newVal = Number(e.target.value);
+                    setTargetCat2Idx(newVal);
+                    if (newVal === targetCat1Idx) {
+                      setTargetCat1Idx(targetCat2Idx);
+                    }
+                  }}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories.map((c, i) => (
+                    <option key={i} value={i}>{c.id}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div style={{ color: '#aaa', fontStyle: 'italic' }}>
+                Figure out the whole board.
+              </div>
+            )}
           </div>
 
           <div style={{ marginBottom: '20px' }}>
@@ -842,18 +913,72 @@ function App() {
                   checked={useTargetClueCount}
                   onChange={(e) => setUseTargetClueCount(e.target.checked)}
                 />
-                Target Clue Count: <strong>{useTargetClueCount ? targetClueCount : 'Any'}</strong>
+                Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
               </label>
             </div>
 
             {useTargetClueCount && (
-              <input
-                type="range" min="3" max="15"
-                value={targetClueCount} onChange={(e) => setTargetClueCount(Number(e.target.value))}
-                style={{ width: '100%' }}
-              />
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                <input
+                  type="range"
+                  min={getRecommendedBounds(numCats, numItems).min}
+                  max={getRecommendedBounds(numCats, numItems).max}
+                  value={targetClueCount}
+                  onChange={(e) => {
+                    setTargetClueCount(parseInt(e.target.value));
+                    // setUseTargetClueCount(true); // Redundant if already rendered
+                  }}
+                  style={{ flex: 1, marginRight: '10px' }}
+                />
+                <span style={{ fontWeight: 'bold', width: '30px', textAlign: 'center' }}>{targetClueCount}</span>
+              </div>
             )}
           </div>
+
+
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
+            <label style={{ display: 'block', marginBottom: '10px', fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Allowed Clue Types
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
+              {[
+                { type: ClueType.BINARY, label: 'Binary (Is/Not)' },
+                { type: ClueType.ORDINAL, label: 'Ordinal (Before/After)' },
+                { type: ClueType.SUPERLATIVE, label: 'Superlative (First/Last)' },
+                { type: ClueType.UNARY, label: 'Unary (Values)' },
+                { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' }
+              ].map((opt) => {
+                const isOrdinalDependent = [
+                  ClueType.ORDINAL,
+                  ClueType.SUPERLATIVE,
+                  ClueType.UNARY,
+                  ClueType.CROSS_ORDINAL
+                ].includes(opt.type);
+
+                const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+                const isDisabled = isOrdinalDependent && !hasOrdinalCategory;
+
+                return (
+                  <label key={opt.type} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: isDisabled ? 'not-allowed' : 'pointer', color: isDisabled ? '#666' : '#ccc', opacity: isDisabled ? 0.5 : 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={allowedClueTypes.includes(opt.type)}
+                      disabled={isDisabled}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setAllowedClueTypes(prev => [...prev, opt.type]);
+                        } else {
+                          setAllowedClueTypes(prev => prev.filter(t => t !== opt.type));
+                        }
+                      }}
+                    />
+                    {opt.label} {isDisabled && <span style={{ fontSize: '0.8em' }}>(Requires Ordinal Category)</span>}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Puzzle Title (Optional)</label>
             <input
@@ -926,8 +1051,9 @@ function App() {
           </button>
           <div style={{ clear: 'both' }}></div>
         </div>
-      )}
-    </div>
+      )
+      }
+    </div >
   );
 
   const renderSolutionStep = () => {
@@ -975,14 +1101,18 @@ function App() {
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            {puzzleTitle && <h1 className="print-title" style={{ margin: '0 0 10px 0', fontSize: '1.8rem', color: '#fff', lineHeight: 1.2 }}>{puzzleTitle}</h1>}
-            <h3 className="print-hide" style={{ margin: 0, color: '#10b981' }}>3. Clues Generated!</h3>
-            <div style={{ color: '#aaa', fontSize: '0.9em', marginTop: '5px' }}>
-              Target: Find <strong>{categories[targetCat2Idx]?.id}</strong> for <strong>{formatClueValue(categories[targetCat1Idx]?.values[targetVal1Idx], categories[targetCat1Idx]?.id)}</strong> ({categories[targetCat1Idx]?.id})
+            <h3 style={{ margin: '0 0 5px 0', color: '#10b981' }}>3. Clues Generated!</h3>
+            <div style={{ color: '#aaa', fontSize: '0.9em' }}>
+              {useSpecificGoal && puzzle?.targetFact ? (
+                <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
+              ) : (
+                <>Goal: <strong>Fill the entire grid</strong></>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <button onClick={() => window.print()} style={{ background: 'none', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', fontWeight: 'bold', padding: '5px 10px', borderRadius: '4px' }}>
+          <div className="print-hide">
+            <button
+              onClick={() => window.print()} style={{ background: 'none', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', fontWeight: 'bold', padding: '5px 10px', borderRadius: '4px' }}>
               Print / Save PDF
             </button>
             <button onClick={() => setSelectedStep(-1)} style={{ background: 'none', border: 'none', color: selectedStep === -1 ? '#10b981' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>
@@ -1052,7 +1182,9 @@ function App() {
                   if (offset < 0) return `${Math.abs(offset)} positions BEFORE`;
                   return `${offset} positions AFTER`;
                 };
-                desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.ordinal1}) is the item ${formatOffset(c.offset2)} ${v2} (${c.ordinal2})`;
+                const isNot = c.operator === 1; // 1 = NOT_MATCH (roughly, check enum)
+                const relation = isNot ? 'is NOT' : 'is';
+                desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.ordinal1}) ${relation} the item ${formatOffset(c.offset2)} ${v2} (${c.ordinal2})`;
               }
             }
 
@@ -1195,22 +1327,6 @@ function App() {
               {puzzle && (
                 <div className="print-hide" style={{ marginBottom: '15px', display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
                   <button
-                    onClick={() => setViewMode('solution')}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '4px',
-                      border: 'none',
-                      background: viewMode === 'solution' ? '#fff' : 'transparent',
-                      color: viewMode === 'solution' ? '#3b82f6' : '#666',
-                      fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
-                      boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    Solution View
-                  </button>
-                  <button
                     onClick={() => setViewMode('play')}
                     style={{
                       padding: '6px 12px',
@@ -1225,6 +1341,22 @@ function App() {
                     }}
                   >
                     Play Mode
+                  </button>
+                  <button
+                    onClick={() => setViewMode('solution')}
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '4px',
+                      border: 'none',
+                      background: viewMode === 'solution' ? '#fff' : 'transparent',
+                      color: viewMode === 'solution' ? '#3b82f6' : '#666',
+                      fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
+                      boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    Solution View
                   </button>
                 </div>
               )}

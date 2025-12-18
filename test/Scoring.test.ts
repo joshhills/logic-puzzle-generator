@@ -78,6 +78,6 @@ describe('Generator Scoring Logic', () => {
         // Should be -1,000,000 because it solves the target but the puzzle (rest of grid) is NOT solved.
         const score = generator.publicCalculateScore(tempGrid, target, deductions, clue, []);
 
-        expect(score).toBe(-1000000);
+        expect(score).toBe(-Infinity);
     });
 });
