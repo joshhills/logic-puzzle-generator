@@ -39,6 +39,8 @@ interface ComparisonGridProps {
     // Play Mode
     viewMode?: 'solution' | 'play';
     userPlayState?: Record<string, 'T' | 'F'>;
+    checkAnswers?: boolean;
+    solution?: Record<string, Record<string, string | number>>;
     onInteract?: (c1: string, v1: string | number, c2: string, v2: string | number) => void;
 }
 
@@ -53,9 +55,19 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
     targetFact,
     viewMode = 'solution',
     userPlayState,
+    checkAnswers,
+    solution,
     onInteract
 }) => {
     const cellSize = 40;
+
+    // Helper for "Check Answers" logic
+    const rowValueToBase = new Map<string | number, string | number>();
+    const colValueToBase = new Map<string | number, string | number>();
+    if (solution) {
+        Object.entries(solution[rowCategory.id] || {}).forEach(([base, val]) => rowValueToBase.set(val, base));
+        Object.entries(solution[colCategory.id] || {}).forEach(([base, val]) => colValueToBase.set(val, base));
+    }
 
     // Check for Target Fact Overlays
     let rowOverlayIndex = -1;
@@ -121,6 +133,17 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
                             content = '✓';
                             color = '#10b981'; // Green for Tick
                             bgColor = '#ecfdf5'; // Light green bg
+                        }
+
+                        // --- CHECK ANSWERS OVERRIDE ---
+                        if (checkAnswers && userMark) {
+                            const isMatch = rowValueToBase.get(rowVal) === colValueToBase.get(colVal);
+                            const isCorrect = (userMark === 'T' && isMatch) || (userMark === 'F' && !isMatch);
+
+                            if (!isCorrect) {
+                                bgColor = '#fee2e2'; // Pale red background for errors
+                                color = '#b91c1c';   // Darker red for the icon
+                            }
                         }
                     } else {
                         // --- SOLUTION MODE RENDER ---

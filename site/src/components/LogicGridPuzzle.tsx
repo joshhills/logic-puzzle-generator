@@ -25,10 +25,12 @@ interface LogicGridPuzzleProps {
     // Play Mode
     viewMode?: 'solution' | 'play';
     userPlayState?: Record<string, 'T' | 'F'>;
+    checkAnswers?: boolean;
+    solution?: Record<string, Record<string, string | number>>;
     onInteract?: (c1: string, v1: string | number, c2: string, v2: string | number) => void;
 }
 
-export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact, viewMode = 'solution', userPlayState, onInteract }) => {
+export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact, viewMode = 'solution', userPlayState, checkAnswers, solution, onInteract }) => {
     const [activeHover, setActiveHover] = React.useState<HoverState | null>(null);
 
     if (!categories || categories.length < 2) return <div>Invalid Categories</div>;
@@ -283,6 +285,8 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                         // Play Mode
                                         viewMode={viewMode}
                                         userPlayState={userPlayState}
+                                        checkAnswers={checkAnswers}
+                                        solution={solution}
                                         onInteract={onInteract}
                                     />
                                 </div>

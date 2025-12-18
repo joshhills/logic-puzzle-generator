@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType } from '../../src/index';
+import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType, GenerativeSession, Clue } from '../../src/index';
 import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
@@ -97,12 +97,21 @@ function App() {
     ClueType.CROSS_ORDINAL
   ]);
 
+  // Interactive Mode State
+  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
+  const [session, setSession] = useState<GenerativeSession | null>(null);
+
+  const [interactiveSolved, setInteractiveSolved] = useState(false);
+  const [nextClueConstraints, setNextClueConstraints] = useState<ClueType[]>([]); // Subset of allowed? or separate?
+  // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
+
   // --- Step 3: Solution State ---
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
 
   // --- Step 4: Play Mode State ---
   const [viewMode, setViewMode] = useState<'solution' | 'play'>('play');
   const [userPlayState, setUserPlayState] = useState<Record<string, 'T' | 'F'>>({});
+  const [checkAnswers, setCheckAnswers] = useState(false);
 
   // Scroll refs
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -210,16 +219,16 @@ function App() {
       const state = {
         version: DATA_VERSION,
         timestamp: Date.now(),
-        activeStep,
-        maxReachedStep,
-        selectedStep,
+        activeStep: isInteractiveMode ? 1 : activeStep, // Reset step if interactive
+        maxReachedStep: isInteractiveMode ? 1 : maxReachedStep,
+        selectedStep: isInteractiveMode ? -1 : selectedStep,
         config: {
           numCats, numItems,
           targetClueCount, useTargetClueCount, seedInput, flavorText,
           targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
         },
         categories,
-        puzzle,
+        puzzle: isInteractiveMode ? null : puzzle, // Do not save interactive placeholder puzzle
         viewMode,
         userPlayState
       };
@@ -231,7 +240,7 @@ function App() {
     numCats, numItems, categories,
     targetClueCount, useTargetClueCount, seedInput, flavorText,
     targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
-    puzzle, viewMode, userPlayState
+    puzzle, viewMode, userPlayState, isInteractiveMode
   ]);
 
   // Update max reached step
@@ -242,6 +251,8 @@ function App() {
   // Update Display Grid logic
   useEffect(() => {
     if (categories.length === 0) return;
+
+
 
     if (puzzle) {
       if (selectedStep === -1) {
@@ -282,7 +293,7 @@ function App() {
       // Preview Mode (Empty Grid)
       setDisplayGrid(new LogicGrid(categories));
     }
-  }, [puzzle, categories, selectedStep]);
+  }, [puzzle, categories, selectedStep, isInteractiveMode]);
 
   // Scroll to active step
   useEffect(() => {
@@ -595,19 +606,36 @@ function App() {
           category2Id: c2.id,
         } : undefined;
 
-        const p = gen.generatePuzzle(categories, targetFact, {
-          targetClueCount: useTargetClueCount ? targetClueCount : undefined,
-          timeoutMs: 30000,
-          constraints: { allowedClueTypes }
-        });
-        setPuzzle(p);
+        if (isInteractiveMode) {
+          const sess = gen.startSession(categories, targetFact);
+          setSession(sess);
+          setInteractiveSolved(false);
+          setNextClueConstraints([...allowedClueTypes]);
 
-        // Notify if auto-adjusted
-        if (useTargetClueCount && p.clues.length !== targetClueCount) {
-          showAlert(
-            "Clue Count Adjusted",
-            `Requested ${targetClueCount} clues, but this puzzle required a minimum of ${p.clues.length}.`
-          );
+          // Set a placeholder puzzle state to allow step navigation
+          setPuzzle({
+            solution: {},
+            clues: [],
+            proofChain: [],
+            categories: categories,
+            targetFact: targetFact
+          } as any);
+
+        } else {
+          const p = gen.generatePuzzle(categories, targetFact, {
+            targetClueCount: useTargetClueCount ? targetClueCount : undefined,
+            timeoutMs: 30000,
+            constraints: { allowedClueTypes }
+          });
+          setPuzzle(p);
+
+          // Notify if auto-adjusted
+          if (useTargetClueCount && p.clues.length !== targetClueCount) {
+            showAlert(
+              "Clue Count Adjusted",
+              `Requested ${targetClueCount} clues, but this puzzle required a minimum of ${p.clues.length}.`
+            );
+          }
         }
 
         setSelectedStep(-2); // Start at "Step 0" (Instruction)
@@ -906,34 +934,53 @@ function App() {
           </div>
 
           <div style={{ marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="checkbox"
-                  checked={useTargetClueCount}
-                  onChange={(e) => setUseTargetClueCount(e.target.checked)}
-                />
-                Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
-              </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.2em', fontWeight: 'bold', color: '#8ec07c' }}>
+              <input
+                type="checkbox"
+                checked={isInteractiveMode}
+                onChange={(e) => setIsInteractiveMode(e.target.checked)}
+                style={{ width: '20px', height: '20px' }}
+              />
+              Enable Interactive Mode
+            </label>
+            <div style={{ fontSize: '0.9em', color: '#888', marginLeft: '34px' }}>
+              Generate clues one by one instead of a full puzzle.
             </div>
-
-            {useTargetClueCount && (
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="range"
-                  min={getRecommendedBounds(numCats, numItems).min}
-                  max={getRecommendedBounds(numCats, numItems).max}
-                  value={targetClueCount}
-                  onChange={(e) => {
-                    setTargetClueCount(parseInt(e.target.value));
-                    // setUseTargetClueCount(true); // Redundant if already rendered
-                  }}
-                  style={{ flex: 1, marginRight: '10px' }}
-                />
-                <span style={{ fontWeight: 'bold', width: '30px', textAlign: 'center' }}>{targetClueCount}</span>
-              </div>
-            )}
           </div>
+
+
+
+          {!isInteractiveMode && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={useTargetClueCount}
+                    onChange={(e) => setUseTargetClueCount(e.target.checked)}
+                  />
+                  Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
+                </label>
+              </div>
+
+              {useTargetClueCount && (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="range"
+                    min={getRecommendedBounds(numCats, numItems).min}
+                    max={getRecommendedBounds(numCats, numItems).max}
+                    value={targetClueCount}
+                    onChange={(e) => {
+                      setTargetClueCount(parseInt(e.target.value));
+                      // setUseTargetClueCount(true); // Redundant if already rendered
+                    }}
+                    style={{ flex: 1, marginRight: '10px' }}
+                  />
+                  <span style={{ fontWeight: 'bold', width: '30px', textAlign: 'center' }}>{targetClueCount}</span>
+                </div>
+              )}
+            </div>
+          )}
 
 
           <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
@@ -1036,8 +1083,8 @@ function App() {
             disabled={isGenerating}
             style={{
               padding: '10px 20px',
-              backgroundColor: isGenerating ? '#666' : '#10b981',
-              color: '#fff',
+              backgroundColor: isInteractiveMode ? '#8ec07c' : (isGenerating ? '#666' : '#10b981'),
+              color: isInteractiveMode ? '#282828' : '#fff',
               border: 'none',
               borderRadius: '6px',
               cursor: isGenerating ? 'wait' : 'pointer',
@@ -1047,7 +1094,7 @@ function App() {
               opacity: isGenerating ? 0.7 : 1
             }}
           >
-            {isGenerating ? 'Generating...' : 'Generate Puzzle'}
+            {isGenerating ? 'Working...' : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
           </button>
           <div style={{ clear: 'both' }}></div>
         </div>
@@ -1055,6 +1102,9 @@ function App() {
       }
     </div >
   );
+
+
+
 
   const renderSolutionStep = () => {
     if (!puzzle) return null;
@@ -1086,6 +1136,10 @@ function App() {
       return displayVal;
     };
 
+
+
+
+
     return (
       <div
         key="step2"
@@ -1101,7 +1155,10 @@ function App() {
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <h3 style={{ margin: '0 0 5px 0', color: '#10b981' }}>3. Clues Generated!</h3>
+            {puzzleTitle && (
+              <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
+            )}
+            <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '3. Clues Generated!'}</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em' }}>
               {useSpecificGoal && puzzle?.targetFact ? (
                 <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
@@ -1111,15 +1168,118 @@ function App() {
             </div>
           </div>
           <div className="print-hide">
-            <button
-              onClick={() => window.print()} style={{ background: 'none', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', fontWeight: 'bold', padding: '5px 10px', borderRadius: '4px' }}>
-              Print / Save PDF
-            </button>
-            <button onClick={() => setSelectedStep(-1)} style={{ background: 'none', border: 'none', color: selectedStep === -1 ? '#10b981' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>
-              Show Full Solution
-            </button>
+            {!isInteractiveMode && (
+              <>
+                <button
+                  onClick={() => window.print()} style={{ background: 'none', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', fontWeight: 'bold', padding: '5px 10px', borderRadius: '4px', marginRight: '10px' }}>
+                  Print / Save PDF
+                </button>
+                <button onClick={() => setSelectedStep(-1)} style={{ background: 'none', border: 'none', color: (selectedStep === -1 || (puzzle && selectedStep === puzzle.proofChain.length - 1)) ? '#10b981' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>
+                  Show Full Solution
+                </button>
+              </>
+            )}
+            {isInteractiveMode && (
+              <button className="secondary-button" onClick={() => {
+                setActiveStep(1);
+                setSession(null);
+                // setInteractiveClues([]); // Removed as we rely on puzzle state now
+                // setInteractiveGrid(null); // Removed
+              }} style={{ background: 'transparent', border: '1px solid #666', color: '#ccc', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>
+                Cancel Session
+              </button>
+            )}
           </div>
         </div>
+
+        {isInteractiveMode && session && (
+          <div style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
+            <h4 style={{ marginTop: 0, marginBottom: '10px', color: '#d5c4a1' }}>Generation Controls</h4>
+            <div style={{ marginBottom: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+              {allowedClueTypes.map(type => {
+                const isOrdinalType = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL].includes(type);
+                const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+                const isDisabled = isOrdinalType && !hasOrdinalCategory;
+
+                return (
+                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                    <input
+                      type="checkbox"
+                      checked={nextClueConstraints.includes(type)}
+                      disabled={isDisabled}
+                      onChange={(e) => {
+                        if (isDisabled) return;
+                        if (e.target.checked) setNextClueConstraints([...nextClueConstraints, type]);
+                        else setNextClueConstraints(nextClueConstraints.filter(t => t !== type));
+                      }}
+                    />
+                    {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>(Req. Ordinal)</span>}
+                  </label>
+                );
+              })}
+            </div>
+            <button
+              onClick={() => {
+                const result = session.getNextClue({ allowedClueTypes: nextClueConstraints });
+                if (result.clue) {
+                  // Append to puzzle state
+                  // Use 'any' cast for proof step compatibility since we just need the clue for App.tsx replay logic
+                  const newStep = { clue: result.clue } as any;
+                  const newProof = [...puzzle.proofChain, newStep];
+                  const newClues = [...puzzle.clues, result.clue];
+
+                  setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                  // Auto-advance scrubber
+                  setSelectedStep(newProof.length - 1);
+                } else {
+                  if (result.solved) {
+                    showAlert("Puzzle Solved!", "The grid is fully solved!");
+                    setInteractiveSolved(true);
+                  } else {
+                    showAlert("No Clue Found", "Could not generate a clue with these constraints.");
+                  }
+                }
+                if (result.solved) {
+                  setInteractiveSolved(true);
+                  if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
+                }
+              }}
+              disabled={interactiveSolved || nextClueConstraints.length === 0}
+              style={{ padding: '10px 20px', backgroundColor: '#8ec07c', color: '#282828', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer', opacity: (interactiveSolved || nextClueConstraints.length === 0) ? 0.5 : 1 }}
+            >
+              {interactiveSolved ? 'Session Complete' : 'Generate Next Clue'}
+            </button>
+            <button
+              onClick={() => {
+                const result = session.rollbackLastClue();
+                if (result.success) {
+                  const newProof = puzzle.proofChain.slice(0, -1);
+                  const newClues = puzzle.clues.slice(0, -1);
+                  setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                  setInteractiveSolved(false);
+                  // Move scrubber back if we were at the end
+                  if (selectedStep >= newProof.length) {
+                    setSelectedStep(newProof.length - 1);
+                  }
+                }
+              }}
+              disabled={puzzle.proofChain.length === 0}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#d3869b',
+                color: '#282828',
+                border: 'none',
+                borderRadius: '5px',
+                fontWeight: 'bold',
+                cursor: puzzle.proofChain.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: puzzle.proofChain.length === 0 ? 0.5 : 1,
+                marginLeft: '10px'
+              }}
+            >
+              Undo Last
+            </button>
+          </div>
+        )}
 
         {/* Interactive Clue Scrubber */}
         <div className="clue-list" style={{ padding: '0' }}>
@@ -1225,7 +1385,7 @@ function App() {
           })}
         </div>
         <div style={{ padding: '20px', textAlign: 'center' }}>
-          {!seedInput && (
+          {!seedInput && !isInteractiveMode && (
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
@@ -1323,41 +1483,76 @@ function App() {
               color: '#333',
               overflowX: 'auto'
             }}>
-              {/* Play Mode Toggle */}
+              {/* Header: Stable grid to prevent button jumping */}
               {puzzle && (
-                <div className="print-hide" style={{ marginBottom: '15px', display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
-                  <button
-                    onClick={() => setViewMode('play')}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '4px',
-                      border: 'none',
-                      background: viewMode === 'play' ? '#fff' : 'transparent',
-                      color: viewMode === 'play' ? '#10b981' : '#666',
-                      fontWeight: viewMode === 'play' ? 'bold' : 'normal',
-                      boxShadow: viewMode === 'play' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    Play Mode
-                  </button>
-                  <button
-                    onClick={() => setViewMode('solution')}
-                    style={{
-                      padding: '6px 12px',
-                      borderRadius: '4px',
-                      border: 'none',
-                      background: viewMode === 'solution' ? '#fff' : 'transparent',
-                      color: viewMode === 'solution' ? '#3b82f6' : '#666',
-                      fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
-                      boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s'
-                    }}
-                  >
-                    Solution View
-                  </button>
+                <div className="print-hide" style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr auto 1fr',
+                  width: '100%',
+                  alignItems: 'center',
+                  marginBottom: '15px',
+                  padding: '0 10px'
+                }}>
+                  {/* Left Spacer to keep center balanced */}
+                  <div></div>
+
+                  {/* Center: Mode Switcher */}
+                  <div style={{ display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
+                    <button
+                      onClick={() => setViewMode('play')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: viewMode === 'play' ? '#fff' : 'transparent',
+                        color: viewMode === 'play' ? '#10b981' : '#666',
+                        fontWeight: viewMode === 'play' ? 'bold' : 'normal',
+                        boxShadow: viewMode === 'play' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Play Mode
+                    </button>
+                    <button
+                      onClick={() => setViewMode('solution')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '4px',
+                        border: 'none',
+                        background: viewMode === 'solution' ? '#fff' : 'transparent',
+                        color: viewMode === 'solution' ? '#3b82f6' : '#666',
+                        fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
+                        boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Solution View
+                    </button>
+                  </div>
+
+                  {/* Right: Check Answers (only in Play Mode) */}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    {viewMode === 'play' && (
+                      <label style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        cursor: 'pointer',
+                        fontSize: '0.85em',
+                        color: '#444',
+                        userSelect: 'none'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={checkAnswers}
+                          onChange={(e) => setCheckAnswers(e.target.checked)}
+                        />
+                        Check Answers
+                      </label>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1373,6 +1568,8 @@ function App() {
                 // Play Mode Props
                 viewMode={viewMode}
                 userPlayState={userPlayState}
+                checkAnswers={checkAnswers}
+                solution={puzzle?.solution}
                 // Only allow interaction if we have a puzzle AND we are in the Solution/Play step (Step index 2)
                 // We allow playing even during history scrubbing (User Request)
                 onInteract={(puzzle && activeStep >= 2) ? handleCellInteraction : undefined}

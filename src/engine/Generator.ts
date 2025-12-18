@@ -3,6 +3,7 @@ import { ConfigurationError } from '../errors';
 import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinalClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
+import { GenerativeSession } from './GenerativeSession';
 
 /**
  * Represents a single step in the logical deduction path.
@@ -180,6 +181,46 @@ export class Generator {
     }
 
     /**
+     * Starts an interactive generative session.
+     * @param categories
+     * @param target Optional target fact.
+     */
+    public startSession(categories: CategoryConfig[], target?: TargetFact): GenerativeSession {
+        // Validation
+        if (categories.length < 2) throw new ConfigurationError("Must have at least 2 categories.");
+
+        // Synthesize Target if Missing
+        let finalTarget = target;
+        if (!finalTarget) {
+            // Pick Random Target
+            const cat1Idx = Math.floor(this.random() * categories.length);
+            let cat2Idx = Math.floor(this.random() * categories.length);
+            while (cat2Idx === cat1Idx) {
+                cat2Idx = Math.floor(this.random() * categories.length);
+            }
+            const c1 = categories[cat1Idx];
+            const c2 = categories[cat2Idx];
+            const valIdx = Math.floor(this.random() * c1.values.length);
+
+            finalTarget = {
+                category1Id: c1.id,
+                value1: c1.values[valIdx],
+                category2Id: c2.id
+            };
+        }
+
+        // Initialize State maps locally for this session
+        const valueMap = new Map<ValueLabel, Record<string, ValueLabel>>();
+        const solution: Solution = {};
+        const reverseSolution = new Map<string, Map<ValueLabel, ValueLabel>>();
+
+        // Populate them
+        this.createSolution(categories, valueMap, solution, reverseSolution);
+
+        return new GenerativeSession(this, categories, solution, reverseSolution, valueMap, finalTarget);
+    }
+
+    /**
      * Internal generation method exposed for simulations.
      * @param strategy 'standard' | 'min' | 'max'
      */
@@ -256,7 +297,14 @@ export class Generator {
         }
 
         // Initialize Solution & State Maps (REQUIRED for clue generation)
-        this.createSolution(categories);
+        // Initialize Solution & State Maps (REQUIRED for clue generation)
+        // Note: internalGenerate uses the instance properties for state to simulate original behavior
+        // But we should clean this up to be pure if possible. 
+        // For now, we reset instance properties.
+        this.valueMap = new Map();
+        this.solution = {};
+        this.reverseSolution = new Map();
+        this.createSolution(categories, this.valueMap, this.solution, this.reverseSolution);
 
         // Backtracking Method (Exact Target)
         if (targetCount !== undefined) {
@@ -289,7 +337,7 @@ export class Generator {
             }
         }
 
-        let availableClues = this.generateAllPossibleClues(categories, options?.constraints);
+        let availableClues = this.generateAllPossibleClues(categories, options?.constraints, this.reverseSolution, this.valueMap);
 
         const logicGrid = new LogicGrid(categories);
 
@@ -335,7 +383,7 @@ export class Generator {
                     score = (100 / deductions);
                 } else {
                     // Standard balanced scoring
-                    score = this.calculateScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue));
+                    score = this.publicCalculateScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue), this.solution, this.reverseSolution);
                 }
 
                 // Check for immediate solution vs normal step
@@ -343,7 +391,7 @@ export class Generator {
                 const targetValue = this.solution[target.category2Id][target.value1];
                 const isTargetSolved = tempGrid.isPossible(target.category1Id, target.value1, target.category2Id, targetValue) &&
                     tempGrid.getPossibilitiesCount(target.category1Id, target.value1, target.category2Id) === 1;
-                const puzzleSolved = this.isPuzzleSolved(tempGrid);
+                const puzzleSolved = this.isPuzzleSolved(tempGrid, this.solution, this.reverseSolution);
 
                 if (isTargetSolved) {
                     if (puzzleSolved) {
@@ -377,7 +425,7 @@ export class Generator {
             const chosenIndex = availableClues.findIndex(c => JSON.stringify(c) === JSON.stringify(chosenClue));
             if (chosenIndex > -1) availableClues.splice(chosenIndex, 1);
 
-            if (this.isPuzzleSolved(logicGrid)) break;
+            if (this.isPuzzleSolved(logicGrid, this.solution, this.reverseSolution)) break;
         }
 
         return {
@@ -398,7 +446,7 @@ export class Generator {
         timeoutMs: number = 10000,
         constraints?: ClueGenerationConstraints
     ): Puzzle {
-        const availableClues = this.generateAllPossibleClues(categories, constraints);
+        const availableClues = this.generateAllPossibleClues(categories, constraints, this.reverseSolution, this.valueMap);
         const logicGrid = new LogicGrid(categories);
 
         // Timeout protection
@@ -408,7 +456,7 @@ export class Generator {
             if (Date.now() - startTime > timeoutMs) return null;
 
             // Check if solved
-            const isSolved = this.isPuzzleSolved(currentGrid);
+            const isSolved = this.isPuzzleSolved(currentGrid, this.solution, this.reverseSolution);
 
             if (isSolved) {
                 return currentChain.length === targetCount ? currentChain : null;
@@ -460,11 +508,11 @@ export class Generator {
                 checked++;
 
                 // Do NOT allow early solves unless it's the last step
-                const solvedNow = this.isPuzzleSolved(tempGrid);
+                const solvedNow = this.isPuzzleSolved(tempGrid, this.solution, this.reverseSolution);
                 if (solvedNow && (stepsTaken < targetCount)) continue;
 
                 // Calculate Base Quality Score (Variety, Repetition, etc.)
-                const qualityScore = this.calculateScore(tempGrid, target, deductions, clue, currentChain.map(p => p.clue));
+                const qualityScore = this.publicCalculateScore(tempGrid, target, deductions, clue, currentChain.map(p => p.clue), this.solution, this.reverseSolution);
 
                 let heuristicScore = 0;
                 if (needsToSpeedUp) {
@@ -514,11 +562,16 @@ export class Generator {
 
 
 
-    private createSolution(categories: CategoryConfig[]): void {
+    private createSolution(
+        categories: CategoryConfig[],
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>>,
+        solution: Solution,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>
+    ): void {
         const baseCategory = categories[0];
 
         baseCategory.values.forEach(val => {
-            this.valueMap.set(val, { [baseCategory.id]: val });
+            valueMap.set(val, { [baseCategory.id]: val });
         });
 
         for (let i = 1; i < categories.length; i++) {
@@ -526,29 +579,34 @@ export class Generator {
             const shuffledValues = [...currentCategory.values].sort(() => this.random() - 0.5);
             let i_shuffled = 0;
             for (const val of baseCategory.values) {
-                const record = this.valueMap.get(val);
+                const record = valueMap.get(val);
                 if (record)
                     record[currentCategory.id] = shuffledValues[i_shuffled++];
             }
         }
 
         for (const cat of categories) {
-            this.solution[cat.id] = {};
-            this.reverseSolution.set(cat.id, new Map());
+            solution[cat.id] = {};
+            reverseSolution.set(cat.id, new Map());
         }
 
         for (const baseVal of baseCategory.values) {
-            const mappings = this.valueMap.get(baseVal);
+            const mappings = valueMap.get(baseVal);
             if (mappings) {
                 for (const catId in mappings) {
-                    this.solution[catId][baseVal] = mappings[catId];
-                    this.reverseSolution.get(catId)?.set(mappings[catId], baseVal);
+                    solution[catId][baseVal] = mappings[catId];
+                    reverseSolution.get(catId)?.set(mappings[catId], baseVal);
                 }
             }
         }
     }
 
-    private generateAllPossibleClues(categories: CategoryConfig[], constraints?: ClueGenerationConstraints): Clue[] {
+    public generateAllPossibleClues(
+        categories: CategoryConfig[],
+        constraints: ClueGenerationConstraints | undefined,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>,
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>>
+    ): Clue[] {
         const clues: Clue[] = [];
         const baseCategory = categories[0];
 
@@ -562,9 +620,9 @@ export class Generator {
                     for (const cat2 of categories) {
                         if (cat1.id >= cat2.id) continue;
 
-                        const baseVal = this.reverseSolution.get(cat1.id)?.get(val1);
+                        const baseVal = reverseSolution.get(cat1.id)?.get(val1);
                         if (!baseVal) continue;
-                        const mappings = this.valueMap.get(baseVal);
+                        const mappings = valueMap.get(baseVal);
                         if (!mappings) continue;
 
                         for (const val2 of cat2.values) {
@@ -607,9 +665,9 @@ export class Generator {
                     if (targetCat.id === ordCategory.id) continue;
 
                     for (const targetVal of targetCat.values) {
-                        const baseVal = this.reverseSolution.get(targetCat.id)?.get(targetVal);
+                        const baseVal = reverseSolution.get(targetCat.id)?.get(targetVal);
                         if (!baseVal) continue;
-                        const mappings = this.valueMap.get(baseVal);
+                        const mappings = valueMap.get(baseVal);
                         if (!mappings) continue;
 
                         const ordVal = mappings[ordCategory.id] as number;
@@ -666,15 +724,15 @@ export class Generator {
                             for (const item2Val of item2Cat.values) {
                                 if (item1Cat.id === item2Cat.id && item1Val === item2Val) continue;
 
-                                const baseVal1 = this.reverseSolution.get(item1Cat.id)?.get(item1Val);
-                                const baseVal2 = this.reverseSolution.get(item2Cat.id)?.get(item2Val);
+                                const baseVal1 = reverseSolution.get(item1Cat.id)?.get(item1Val);
+                                const baseVal2 = reverseSolution.get(item2Cat.id)?.get(item2Val);
                                 if (!baseVal1 || !baseVal2) continue;
 
                                 // if they are the same entity, don't compare
                                 if (baseVal1 === baseVal2) continue;
 
-                                const mappings1 = this.valueMap.get(baseVal1);
-                                const mappings2 = this.valueMap.get(baseVal2);
+                                const mappings1 = valueMap.get(baseVal1);
+                                const mappings2 = valueMap.get(baseVal2);
                                 if (!mappings1 || !mappings2) continue;
 
                                 const ordVal1 = mappings1[ordCategory.id] as number;
@@ -738,9 +796,9 @@ export class Generator {
                     if (targetCategory.id === ordCategory.id) continue;
 
                     for (const targetVal of targetCategory.values) {
-                        const baseVal = this.reverseSolution.get(targetCategory.id)?.get(targetVal);
+                        const baseVal = reverseSolution.get(targetCategory.id)?.get(targetVal);
                         if (!baseVal) continue;
-                        const mappings = this.valueMap.get(baseVal);
+                        const mappings = valueMap.get(baseVal);
                         if (!mappings) continue;
 
                         const ordValue = mappings[ordCategory.id] as number;
@@ -770,7 +828,15 @@ export class Generator {
         return clues;
     }
 
-    private calculateScore(grid: LogicGrid, target: TargetFact, deductions: number, clue: Clue, previouslySelectedClues: Clue[]): number {
+    public publicCalculateScore(
+        grid: LogicGrid,
+        target: TargetFact,
+        deductions: number,
+        clue: Clue,
+        previouslySelectedClues: Clue[],
+        solution: Solution,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>
+    ): number {
         const clueType = clue.type;
 
         // Resolve Correct Target Value
@@ -778,11 +844,11 @@ export class Generator {
         // We need to know what Val1 (in Cat1) maps to in Cat2.
         // Solution is { CatID -> { BaseVal -> ValInCat } }.
         // We first need the BaseVal for Val1.
-        const baseVal = this.reverseSolution.get(target.category1Id)?.get(target.value1);
+        const baseVal = reverseSolution.get(target.category1Id)?.get(target.value1);
         let targetValue: ValueLabel | undefined;
 
         if (baseVal !== undefined) {
-            targetValue = this.solution[target.category2Id][baseVal];
+            targetValue = solution[target.category2Id][baseVal];
         }
 
         const isTargetSolved =
@@ -790,7 +856,7 @@ export class Generator {
             grid.isPossible(target.category1Id, target.value1, target.category2Id, targetValue) &&
             grid.getPossibilitiesCount(target.category1Id, target.value1, target.category2Id) === 1;
 
-        const puzzleSolved = this.isPuzzleSolved(grid);
+        const puzzleSolved = this.isPuzzleSolved(grid, solution, reverseSolution);
 
         // BAN DIRECT TARGET CLUES
         // If the clue is literally "Subject IS Answer", it's too easy/boring.
@@ -966,7 +1032,11 @@ export class Generator {
         return score;
     }
 
-    private isPuzzleSolved(grid: LogicGrid): boolean {
+    public isPuzzleSolved(
+        grid: LogicGrid,
+        solution: Solution,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>
+    ): boolean {
         const categories = (grid as any).categories as CategoryConfig[];
         const baseCategory = categories[0];
         for (const cat1 of categories) {
@@ -974,9 +1044,9 @@ export class Generator {
                 for (const cat2 of categories) {
                     if (cat1.id >= cat2.id) continue;
 
-                    const baseVal = this.reverseSolution.get(cat1.id)?.get(val1);
+                    const baseVal = reverseSolution.get(cat1.id)?.get(val1);
                     if (!baseVal) return false; // Should not happen
-                    const correctVal2 = this.solution[cat2.id][baseVal];
+                    const correctVal2 = solution[cat2.id][baseVal];
 
                     if (grid.getPossibilitiesCount(cat1.id, val1, cat2.id) > 1) {
                         return false;

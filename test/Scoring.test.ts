@@ -6,11 +6,14 @@ import { Clue, ClueType, BinaryOperator } from '../src/engine/Clue';
 // Subclass to expose protected/private methods for testing
 class TestableGenerator extends Generator {
     public initializeState(categories: CategoryConfig[]) {
-        (this as any).createSolution(categories);
+        (this as any).valueMap = new Map();
+        (this as any).solution = {};
+        (this as any).reverseSolution = new Map();
+        (this as any).createSolution(categories, (this as any).valueMap, (this as any).solution, (this as any).reverseSolution);
     }
 
-    public publicCalculateScore(grid: LogicGrid, target: TargetFact, deductions: number, clue: Clue, prevClues: Clue[]): number {
-        return (this as any).calculateScore(grid, target, deductions, clue, prevClues);
+    public publicWrapperCalculateScore(grid: LogicGrid, target: TargetFact, deductions: number, clue: Clue, prevClues: Clue[]): number {
+        return this.publicCalculateScore(grid, target, deductions, clue, prevClues, (this as any).solution, (this as any).reverseSolution);
     }
 
     public getSolutionMap() {
@@ -76,7 +79,7 @@ describe('Generator Scoring Logic', () => {
 
         // Check Score
         // Should be -1,000,000 because it solves the target but the puzzle (rest of grid) is NOT solved.
-        const score = generator.publicCalculateScore(tempGrid, target, deductions, clue, []);
+        const score = generator.publicWrapperCalculateScore(tempGrid, target, deductions, clue, []);
 
         expect(score).toBe(-Infinity);
     });
