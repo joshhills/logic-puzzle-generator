@@ -7,7 +7,8 @@ import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
 import { SavedGamesModal, SavedPuzzle } from './components/SavedGamesModal';
 import { AppCategoryConfig } from './types';
-import { getRecommendedBounds } from './constants/DifficultyBounds';
+import { getRecommendedBounds } from '../../src/engine/DifficultyBounds';
+import PuzzleWorker from './worker/puzzle.worker?worker';
 
 // Steps: 0=Structure, 1=Goal, 2=Solution
 const STEPS = ['Structure', 'Goal', 'Solution'];
@@ -58,8 +59,24 @@ function App() {
   const [numCats, setNumCats] = useState(3);
   const [numItems, setNumItems] = useState(4);
   const [categories, setCategories] = useState<AppCategoryConfig[]>(() => generateDefaultCategories(3, 4));
-  const [draftCategories, setDraftCategories] = useState<AppCategoryConfig[] | null>(null);
-  const [isEditingCats, setIsEditingCats] = useState(false);
+
+  // Async Generation State
+  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
+  const workerRef = useRef<Worker | null>(null);
+
+  // Helper to append logs
+  const addLog = (msg: string) => {
+    setGenerationLogs(prev => [...prev.slice(-99), msg]); // Keep last 100 logs
+  };
+
+  // Cleanup worker on unmount
+  useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+      }
+    };
+  }, []);
 
   // Dirty State
   const [isDirty, setIsDirty] = useState(false);
@@ -67,6 +84,7 @@ function App() {
 
   // Modals
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [alertState, setAlertState] = useState<{ isOpen: boolean; title: string; message: string }>({ isOpen: false, title: '', message: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -76,7 +94,7 @@ function App() {
 
   // --- Step 2: Goal State ---
   const [targetClueCount, setTargetClueCount] = useState(8);
-  const [useTargetClueCount, setUseTargetClueCount] = useState(true);
+  const [useTargetClueCount, setUseTargetClueCount] = useState(false);
   const [seedInput, setSeedInput] = useState<string>('');
   const [flavorText, setFlavorText] = useState<string>('');
   const [puzzleTitle, setPuzzleTitle] = useState<string>('');
@@ -262,10 +280,18 @@ function App() {
         for (const baseVal of baseCat.values) {
           // Populate full solution from valid map
           for (const cat1 of categories) {
-            const val1 = puzzle.solution[cat1.id][String(baseVal)];
+            const solCat1 = puzzle.solution[cat1.id];
+            if (!solCat1) continue;
+            const val1 = solCat1[String(baseVal)];
+            if (val1 === undefined) continue;
+
             for (const cat2 of categories) {
               if (cat1.id === cat2.id) continue;
-              const val2 = puzzle.solution[cat2.id][String(baseVal)];
+              const solCat2 = puzzle.solution[cat2.id];
+              if (!solCat2) continue;
+              const val2 = solCat2[String(baseVal)];
+              if (val2 === undefined) continue;
+
               for (const v2Candidate of cat2.values) {
                 const isMatch = (v2Candidate === val2);
                 grid.setPossibility(cat1.id, val1, cat2.id, v2Candidate, isMatch);
@@ -316,22 +342,24 @@ function App() {
 
   // --- Actions ---
 
-  const handleStructureChange = (nC: number, nI: number) => {
-    setNumCats(nC);
-    setNumItems(nI);
-    // Regenerate defaults
-    const newCats = generateDefaultCategories(nC, nI);
+  const handleLiveCategoryUpdate = (newCats: AppCategoryConfig[]) => {
     setCategories(newCats);
 
-    // Reset targets
+    const nC = newCats.length;
+    const nI = nC > 0 ? newCats[0].values.length : 4;
+    setNumCats(nC);
+    setNumItems(nI);
+
+    // Reset targets if out of bounds
     if (targetCat1Idx >= nC) setTargetCat1Idx(0);
     if (targetCat2Idx >= nC) setTargetCat2Idx(1);
 
     // Heuristic: Use precomputed bounds
     const bounds = getRecommendedBounds(nC, nI);
-    // Safe default: Average of min/max, rounded
-    const defaultClues = Math.floor((bounds.min + bounds.max) / 2);
-    setTargetClueCount(defaultClues);
+    if (targetClueCount < bounds.min || targetClueCount > bounds.max) {
+      const defaultClues = Math.floor((bounds.min + bounds.max) / 2);
+      setTargetClueCount(defaultClues);
+    }
 
     // Reset puzzle if structure changes
     setPuzzle(null);
@@ -342,44 +370,6 @@ function App() {
     setViewMode('solution');
   };
 
-  const handleOpenEditor = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Initialize draft if not exists (persistence)
-    if (!draftCategories) {
-      setDraftCategories(JSON.parse(JSON.stringify(categories)));
-    }
-    setIsEditingCats(true);
-  };
-
-  const handleDraftUpdate = (newDraft: CategoryConfig[]) => {
-    setDraftCategories(newDraft);
-  };
-
-  const handleSaveCategories = () => {
-    if (draftCategories) {
-      setCategories(draftCategories);
-
-      // Update structure state to match the edit
-      const nC = draftCategories.length;
-      const nI = nC > 0 ? draftCategories[0].values.length : 4;
-      setNumCats(nC);
-      setNumItems(nI);
-
-      setDraftCategories(null); // Clear draft
-      setIsEditingCats(false);
-
-      // Reset logic if cats change substantially? 
-      // Ideally we try to keep keys if possible, but simplest is to reset marks if struct changes.
-      // But here we are just editing names/values. IDs might change.
-      // Let's reset play state to be safe.
-      setUserPlayState({});
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setDraftCategories(null); // Discard
-    setIsEditingCats(false);
-  };
 
   const handleReset = () => {
     setIsResetModalOpen(true);
@@ -561,93 +551,152 @@ function App() {
     setUserPlayState(newState);
   };
 
-  /* eslint-disable react-hooks/exhaustive-deps */
+  const handleCancel = () => {
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    setIsGenerating(false);
+    addLog("Generation cancelled by user.");
+  };
+
   const handleGenerate = () => {
     // Prevent double clicking
     if (isGenerating) return;
 
     setIsGenerating(true);
+    setGenerationLogs([]); // Clear logs
 
-    // Use setTimeout to allow the UI to re-render the "Generating..." state
-    // before the heavy synchronous calculation blocks the thread.
-    setTimeout(() => {
+    // String Hashing for Seed
+    const getSeed = (input: string): number => {
+      if (!input) return Date.now();
+      const num = Number(input);
+      if (!isNaN(num)) return num;
+
+      // Simple hash for strings
+      let hash = 0;
+      for (let i = 0; i < input.length; i++) {
+        const char = input.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; // Convert to 32bit integer
+      }
+      return hash;
+    };
+
+    const s = getSeed(seedInput);
+
+    // Validate target categories
+    const c1 = categories[targetCat1Idx] || categories[0];
+    const c2 = categories[targetCat2Idx] || categories[1];
+
+    if (c1.id === c2.id) {
+      showAlert("Configuration Error", "Target Categories must be different.");
+      setIsGenerating(false);
+      return;
+    }
+    const v1 = c1.values[targetVal1Idx] || c1.values[0];
+
+    const targetFact = useSpecificGoal ? {
+      category1Id: c1.id,
+      value1: v1,
+      category2Id: c2.id,
+    } : undefined;
+
+
+    // Interactive Mode is still sync for now (or could be moved to worker too, but keeping minimal changes first)
+    if (isInteractiveMode) {
       try {
-        // String Hashing for Seed
-        const getSeed = (input: string): number => {
-          if (!input) return Date.now();
-          const num = Number(input);
-          if (!isNaN(num)) return num;
-
-          // Simple hash for strings
-          let hash = 0;
-          for (let i = 0; i < input.length; i++) {
-            const char = input.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash |= 0; // Convert to 32bit integer
-          }
-          return hash;
-        };
-
-        const s = getSeed(seedInput);
         const gen = new Generator(s);
+        const sess = gen.startSession(categories, targetFact);
+        setSession(sess);
+        setInteractiveSolved(false);
+        setNextClueConstraints([...allowedClueTypes]);
 
-        const c1 = categories[targetCat1Idx] || categories[0];
-        const c2 = categories[targetCat2Idx] || categories[1];
-        if (c1.id === c2.id) {
-          showAlert("Configuration Error", "Target Categories must be different.");
-          setIsGenerating(false);
-          return;
-        }
-        const v1 = c1.values[targetVal1Idx] || c1.values[0];
+        setPuzzle({
+          solution: sess.getSolution(),
+          clues: [],
+          proofChain: [],
+          categories: categories,
+          targetFact: targetFact as any
+        } as any);
 
-        const targetFact = useSpecificGoal ? {
-          category1Id: c1.id,
-          value1: v1,
-          category2Id: c2.id,
-        } : undefined;
-
-        if (isInteractiveMode) {
-          const sess = gen.startSession(categories, targetFact);
-          setSession(sess);
-          setInteractiveSolved(false);
-          setNextClueConstraints([...allowedClueTypes]);
-
-          // Set a placeholder puzzle state to allow step navigation
-          setPuzzle({
-            solution: {},
-            clues: [],
-            proofChain: [],
-            categories: categories,
-            targetFact: targetFact
-          } as any);
-
-        } else {
-          const p = gen.generatePuzzle(categories, targetFact, {
-            targetClueCount: useTargetClueCount ? targetClueCount : undefined,
-            timeoutMs: 30000,
-            constraints: { allowedClueTypes }
-          });
-          setPuzzle(p);
-
-          // Notify if auto-adjusted
-          if (useTargetClueCount && p.clues.length !== targetClueCount) {
-            showAlert(
-              "Clue Count Adjusted",
-              `Requested ${targetClueCount} clues, but this puzzle required a minimum of ${p.clues.length}.`
-            );
-          }
-        }
-
-        setSelectedStep(-2); // Start at "Step 0" (Instruction)
+        setSelectedStep(-2);
         setActiveStep(2);
         setMaxReachedStep(2);
       } catch (e: any) {
         console.error(e);
-        showAlert("Generation Failed", e.message || "Unknown error occurred.");
+        showAlert("Interactive Mode Error", e.message);
       } finally {
         setIsGenerating(false);
       }
-    }, 100);
+      return;
+    }
+
+    // Async Worker Generation
+    try {
+      if (workerRef.current) workerRef.current.terminate();
+
+      workerRef.current = new PuzzleWorker();
+
+      workerRef.current.onmessage = (e) => {
+        const { type } = e.data;
+        if (type === 'trace') {
+          addLog(e.data.message);
+        } else if (type === 'done') {
+          const { puzzle } = e.data;
+          setPuzzle(puzzle);
+
+          if (useTargetClueCount && puzzle.clues.length !== targetClueCount) {
+            showAlert(
+              "Target Missed",
+              `Could not generate exact puzzle with ${targetClueCount} clues within the time limit.\n\nGenerated a valid puzzle with ${puzzle.clues.length} clues instead.`
+            );
+          }
+
+          setSelectedStep(-2);
+          setActiveStep(2);
+          setMaxReachedStep(2);
+          setIsGenerating(false);
+          workerRef.current?.terminate();
+          workerRef.current = null;
+        } else if (type === 'error') {
+          console.error("Worker Error:", e.data.message);
+          showAlert("Generation Failed", e.data.message);
+          setIsGenerating(false);
+          workerRef.current?.terminate();
+          workerRef.current = null;
+        }
+      };
+
+      workerRef.current.onerror = (err) => {
+        console.error("Worker Script Error:", err);
+        showAlert("Generation Error", "Worker script failed to execute.");
+        setIsGenerating(false);
+        workerRef.current?.terminate();
+        workerRef.current = null;
+      };
+
+      workerRef.current.postMessage({
+        type: 'start',
+        categories,
+        targetFact,
+        options: {
+          targetClueCount: useTargetClueCount ? targetClueCount : undefined,
+          timeoutMs: 30000,
+          constraints: { allowedClueTypes },
+          // generator seed isn't passed yet! we generated 's' but Generator ctor takes it.
+          // We need to pass seed to worker if Generator supports it.
+          // Currently Generator class ctor takes seed.
+          // I need to update worker to create Generator with seed.
+          seed: s
+        }
+      });
+
+    } catch (e: any) {
+      console.error(e);
+      showAlert("Setup Error", e.message);
+      setIsGenerating(false);
+    }
   };
   /* eslint-enable react-hooks/exhaustive-deps */
 
@@ -771,6 +820,7 @@ function App() {
         backgroundColor: '#2a2a35',
         borderRadius: '12px',
         marginBottom: '20px',
+        scrollMarginTop: '20px',
         cursor: activeStep !== 0 ? 'pointer' : 'default',
         transition: 'all 0.3s',
         border: activeStep === 0 ? '1px solid #3b82f6' : '1px solid transparent'
@@ -779,61 +829,24 @@ function App() {
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 className="step-header" style={{ margin: 0, color: '#fff' }}>1. Structure</h3>
-        {activeStep !== 0 && <div style={{ color: '#aaa' }}>{numCats} Categories, {numItems} Items</div>}
+        <div style={{ color: '#aaa' }}>{numCats} Categories, {numItems} Items</div>
       </div>
 
       {activeStep === 0 && (
         <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
-          {!isEditingCats ? (
-            <>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px' }}>Number of Categories: <strong>{numCats}</strong></label>
-                <input
-                  type="range" min="2" max="5"
-                  value={numCats} onChange={(e) => handleStructureChange(Number(e.target.value), numItems)}
-                  style={{ width: '100%', accentColor: '#3b82f6' }}
-                />
-              </div>
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'block', marginBottom: '8px' }}>Items per Category: <strong>{numItems}</strong></label>
-                <input
-                  type="range" min="3" max="6"
-                  value={numItems} onChange={(e) => handleStructureChange(numCats, Number(e.target.value))}
-                  style={{ width: '100%', accentColor: '#3b82f6' }}
-                />
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                  {categories.map((c, i) => (
-                    <div key={i} style={{ padding: '5px 10px', backgroundColor: '#333', borderRadius: '4px', fontSize: '0.9em' }}>
-                      {c.id} ({c.values.length})
-                    </div>
-                  ))}
-                </div>
-                <button
-                  onClick={handleOpenEditor}
-                  style={{ background: 'none', border: '1px solid #555', color: '#ccc', borderRadius: '4px', padding: '5px 10px', cursor: 'pointer' }}
-                >
-                  Edit Details
-                </button>
-              </div>
-            </>
-          ) : (
-            <CategoryEditor
-              originalCategories={categories}
-              draftCategories={draftCategories || categories} // Safe fallback
-              onDraftUpdate={handleDraftUpdate}
-              onSave={handleSaveCategories}
-              onCancel={handleCancelEdit}
-            />
-          )}
+          <CategoryEditor
+            originalCategories={categories}
+            draftCategories={categories}
+            onDraftUpdate={handleLiveCategoryUpdate}
+            hideFooter={true}
+          />
 
-          {!isEditingCats && <button
+          <button
             onClick={(e) => { e.stopPropagation(); setActiveStep(1); }}
             style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', float: 'right' }}
           >
             Continue
-          </button>}
+          </button>
           <div style={{ clear: 'both' }}></div>
         </div>
       )}
@@ -850,6 +863,7 @@ function App() {
         backgroundColor: '#2a2a35',
         borderRadius: '12px',
         marginBottom: '20px',
+        scrollMarginTop: '20px',
         opacity: activeStep < 1 ? 0.5 : 1,
         cursor: activeStep > 1 || (activeStep === 0) ? 'pointer' : 'default',
         transition: 'all 0.3s',
@@ -938,7 +952,14 @@ function App() {
               <input
                 type="checkbox"
                 checked={isInteractiveMode}
-                onChange={(e) => setIsInteractiveMode(e.target.checked)}
+                onChange={(e) => {
+                  setIsInteractiveMode(e.target.checked);
+                  // Clean up any existing state when switching modes
+                  setPuzzle(null);
+                  setSession(null);
+                  setInteractiveSolved(false);
+                  // if (activeStep === 2) setActiveStep(1); // Dead code: This UI is only visible in Step 1
+                }}
                 style={{ width: '20px', height: '20px' }}
               />
               Enable Interactive Mode
@@ -1078,24 +1099,68 @@ function App() {
               style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#111', color: '#fff', boxSizing: 'border-box' }}
             />
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
-            disabled={isGenerating}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: isInteractiveMode ? '#8ec07c' : (isGenerating ? '#666' : '#10b981'),
-              color: isInteractiveMode ? '#282828' : '#fff',
-              border: 'none',
+          <div style={{ float: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {isGenerating && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#ef4444',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold'
+                }}
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
+              disabled={isGenerating}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: isInteractiveMode ? '#8ec07c' : (isGenerating ? '#666' : '#10b981'),
+                color: isInteractiveMode ? '#282828' : '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: isGenerating ? 'wait' : 'pointer',
+                fontWeight: 'bold',
+                transition: 'background-color 0.2s',
+                opacity: isGenerating ? 0.7 : 1
+              }}
+            >
+              {isGenerating ? 'Working...' : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
+            </button>
+          </div>
+          <div style={{ clear: 'both' }}></div>
+
+          {/* Trace Logs Console */}
+          {(isGenerating || generationLogs.length > 0) && !isInteractiveMode && (
+            <div style={{
+              marginTop: '15px',
+              padding: '10px',
+              backgroundColor: '#111',
+              color: '#00ff00',
+              fontFamily: 'monospace',
+              fontSize: '0.85em',
               borderRadius: '6px',
-              cursor: isGenerating ? 'wait' : 'pointer',
-              float: 'right',
-              fontWeight: 'bold',
-              transition: 'background-color 0.2s',
-              opacity: isGenerating ? 0.7 : 1
-            }}
-          >
-            {isGenerating ? 'Working...' : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
-          </button>
+              border: '1px solid #333',
+              maxHeight: '120px',
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap'
+            }}>
+              {generationLogs.length === 0 ? (
+                <span style={{ color: '#666' }}>Waiting for logs...</span>
+              ) : (
+                generationLogs.map((log, idx) => (
+                  <div key={idx} style={{ lineHeight: '1.4' }}>{log}</div>
+                ))
+              )}
+              {isGenerating && <div style={{ animation: 'blink 1s infinite', color: '#00ff00' }}>_</div>}
+            </div>
+          )}
           <div style={{ clear: 'both' }}></div>
         </div>
       )
@@ -1149,6 +1214,7 @@ function App() {
           backgroundColor: '#2a2a35',
           borderRadius: '12px',
           marginBottom: '100px',
+          scrollMarginTop: '20px',
           animation: 'fadeIn 0.5s',
           border: activeStep === 2 ? '1px solid #10b981' : '1px solid transparent'
         }}
@@ -1183,8 +1249,8 @@ function App() {
               <button className="secondary-button" onClick={() => {
                 setActiveStep(1);
                 setSession(null);
-                // setInteractiveClues([]); // Removed as we rely on puzzle state now
-                // setInteractiveGrid(null); // Removed
+                setPuzzle(null); // Clean up the puzzle visualization
+                setInteractiveSolved(false);
               }} style={{ background: 'transparent', border: '1px solid #666', color: '#ccc', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>
                 Cancel Session
               </button>
@@ -1257,8 +1323,12 @@ function App() {
                   const newClues = puzzle.clues.slice(0, -1);
                   setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
                   setInteractiveSolved(false);
-                  // Move scrubber back if we were at the end
-                  if (selectedStep >= newProof.length) {
+                  // Move scrubber back logic
+                  if (newProof.length === 0) {
+                    // If no clues left, go to step 0 (empty grid)
+                    setSelectedStep(-2);
+                  } else if (selectedStep >= newProof.length) {
+                    // If we were at the end, clamp to new end
                     setSelectedStep(newProof.length - 1);
                   }
                 }
@@ -1393,6 +1463,13 @@ function App() {
               {isGenerating ? 'Generating...' : 'Reroll with same settings'}
             </button>
           )}
+          <button
+            className="header-reset-btn"
+            onClick={() => setIsResetModalOpen(true)}
+            disabled={!canReset}
+            style={{ padding: '10px 20px', background: 'transparent', color: !canReset ? '#666' : '#aaa', border: '1px solid #555', borderRadius: '4px', cursor: !canReset ? 'not-allowed' : 'pointer', marginLeft: '10px' }}>
+            Reset All
+          </button>
         </div>
       </div>
     );
@@ -1422,6 +1499,7 @@ function App() {
         onImport={handleImportJSON}
         onSave={handleQuickSave}
         onManageSaves={() => setIsSavesModalOpen(true)}
+        onInfo={() => setIsInfoModalOpen(true)}
         isDirty={isDirty}
       />
 
@@ -1432,6 +1510,33 @@ function App() {
         title="Reset Application"
         message="Are you sure you want to reset everything? This will clear your current puzzle, settings, and saved data. This action cannot be undone."
       />
+
+      <Modal
+        isOpen={isInfoModalOpen}
+        onClose={() => setIsInfoModalOpen(false)}
+        title="About Logic Puzzle Generator"
+        type="info"
+      >
+        <div style={{ color: '#ccc', lineHeight: '1.5', fontSize: '0.95em' }}>
+          <p style={{ marginTop: 0 }}>
+            <strong>Logic Puzzle Generator</strong> creates solvable logic grid puzzles using a constraint-based engine.
+          </p>
+
+          <div style={{ margin: '15px 0', padding: '12px', backgroundColor: '#333', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+            <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#fff', fontSize: '0.95em' }}>Open Source & Free (MIT)</div>
+            <div style={{ fontSize: '0.9em' }}>
+              Free for personal and commercial use (e.g. puzzle books).
+            </div>
+          </div>
+
+          <p style={{ marginBottom: '8px' }}>Links:</p>
+          <ul style={{ paddingLeft: '20px', margin: 0 }}>
+            <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator#readme" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Documentation</a></li>
+            <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator/issues" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Report Issues</a></li>
+            <li><a href="https://github.com/joshhills/logic-puzzle-generator" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Source Code</a></li>
+          </ul>
+        </div>
+      </Modal>
 
       <SavedGamesModal
         isOpen={isSavesModalOpen}
@@ -1465,24 +1570,27 @@ function App() {
       <div className="main-content">
 
         {/* Top: Fixed Grid Visualization */}
-        <div style={{ padding: '20px', flex: '0 0 auto', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', borderBottom: '1px solid #333', overflow: 'auto', position: 'relative', zIndex: 10, backgroundColor: '#111' }}>
+        <div style={{ padding: '20px', flex: '0 0 auto', borderBottom: '1px solid #333', overflow: 'auto', position: 'relative', zIndex: 10, backgroundColor: '#111' }}>
           <div className="print-hide" style={{ position: 'absolute', top: '10px', right: '10px', color: '#666', fontSize: '0.8em', textTransform: 'uppercase' }}>
             {puzzle ? (selectedStep === -1 ? 'Solution View' : (selectedStep === -2 ? 'Start Setup' : 'Step Preview')) : 'Preview Mode'}
           </div>
           {displayGrid && (
-            <div style={{
-              backgroundColor: 'white',
-              padding: '20px',
-              borderRadius: '12px',
-              width: '80%', /* Match the 10% padding of the bottom section */
-              maxWidth: '1200px',
-              display: 'flex',
-              flexDirection: 'column', // Stack controls
-              alignItems: 'center',
-              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-              color: '#333',
-              overflowX: 'auto'
-            }}>
+            <div
+              className="grid-container"
+              style={{
+                width: 'fit-content',
+                margin: '20px auto',
+                padding: '20px',
+                backgroundColor: '#fff',
+                borderRadius: '16px',
+                border: '1px solid #000',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                color: '#333',
+                overflowX: 'auto'
+              }}>
               {/* Header: Stable grid to prevent button jumping */}
               {puzzle && (
                 <div className="print-hide" style={{

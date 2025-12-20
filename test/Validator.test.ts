@@ -31,7 +31,7 @@ describe('Configuration Validator', () => {
         };
 
         expect(() => {
-            generator.generatePuzzle(categories, undefined, { constraints, targetClueCount: 1 });
+            generator.generatePuzzle(categories, undefined, { constraints, targetClueCount: undefined });
         }).not.toThrow();
     });
 
@@ -40,7 +40,7 @@ describe('Configuration Validator', () => {
             allowedClueTypes: [ClueType.SUPERLATIVE]
         };
         expect(() => {
-            generator.generatePuzzle(categories, undefined, { constraints, targetClueCount: 1 });
+            generator.generatePuzzle(categories, undefined, { constraints, targetClueCount: undefined });
         }).toThrow(/Invalid Constraints/);
     });
 
@@ -53,7 +53,7 @@ describe('Configuration Validator', () => {
             allowedClueTypes: [ClueType.ORDINAL]
         };
         expect(() => {
-            generator.generatePuzzle(ordCategories, undefined, { constraints, targetClueCount: 1 });
+            generator.generatePuzzle(ordCategories, undefined, { constraints, targetClueCount: undefined });
         }).not.toThrow();
     });
 });

@@ -6,9 +6,10 @@ interface ModalProps {
     onClose: () => void;
     onConfirm?: () => void;
     title: string;
-    message: string;
-    type?: 'confirm' | 'alert'; // Default confirm
+    message?: string;
+    type?: 'confirm' | 'alert' | 'info'; // Default confirm
     confirmText?: string;
+    children?: React.ReactNode;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -16,9 +17,10 @@ export const Modal: React.FC<ModalProps> = ({
     onClose,
     onConfirm,
     title,
-    message,
+    message = '',
     type = 'confirm',
-    confirmText = 'Confirm'
+    confirmText = 'Confirm',
+    children
 }) => {
     if (!isOpen) return null;
 
@@ -46,7 +48,9 @@ export const Modal: React.FC<ModalProps> = ({
                 color: '#fff'
             }} onClick={e => e.stopPropagation()}>
                 <h3 style={{ margin: '0 0 15px 0', fontSize: '1.2em' }}>{title}</h3>
-                <p style={{ margin: '0 0 25px 0', color: '#ccc', lineHeight: '1.5' }}>{message}</p>
+                {children ? children : (
+                    <p style={{ margin: '0 0 25px 0', color: '#ccc', lineHeight: '1.5' }}>{message}</p>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
                     {type === 'confirm' && (
                         <button
@@ -70,7 +74,7 @@ export const Modal: React.FC<ModalProps> = ({
                         }}
                         style={{
                             padding: '10px 20px',
-                            backgroundColor: type === 'confirm' ? '#ef4444' : '#3b82f6',
+                            backgroundColor: type === 'confirm' ? '#ef4444' : (type === 'info' ? '#555' : '#3b82f6'),
                             color: '#fff',
                             border: 'none',
                             borderRadius: '6px',
@@ -78,7 +82,7 @@ export const Modal: React.FC<ModalProps> = ({
                             fontWeight: 'bold'
                         }}
                     >
-                        {type === 'confirm' ? confirmText : 'OK'}
+                        {type === 'confirm' ? confirmText : (type === 'info' ? 'Close' : 'OK')}
                     </button>
                 </div>
             </div>

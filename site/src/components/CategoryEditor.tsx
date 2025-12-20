@@ -6,11 +6,12 @@ interface CategoryEditorProps {
     originalCategories: AppCategoryConfig[];
     draftCategories: AppCategoryConfig[];
     onDraftUpdate: (newDraft: AppCategoryConfig[]) => void;
-    onSave: () => void;
-    onCancel: () => void;
+    onSave?: () => void;
+    onCancel?: () => void;
+    hideFooter?: boolean;
 }
 
-export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategories, draftCategories, onDraftUpdate, onSave, onCancel }) => {
+export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategories, draftCategories, onDraftUpdate, onSave, onCancel, hideFooter }) => {
     // No internal state synchronization needed for cats
 
     const [flashingInput, setFlashingInput] = React.useState<string | null>(null);
@@ -239,18 +240,55 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
 
     // --- Actions ---
 
-    // 1. Add Category
+    // 2. Add Category
     const handleAddCategory = () => {
         if (draftCategories.length >= MAX_CATS) return;
         const newCats = [...draftCategories];
         const nItems = newCats[0]?.values.length || 4;
-        const newValues = Array(nItems).fill('').map((_, i) => `Item ${i + 1}`);
 
-        newCats.push({
-            id: `Category ${newCats.length + 1}`,
-            type: CategoryType.NOMINAL,
-            values: newValues
-        });
+        // Smart Defaults (Cluedo-esque)
+        const defaults = [
+            { id: 'Suspect', values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White', 'Rose', 'Peach', 'Brunette', 'Grey'] },
+            { id: 'Weapon', values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench', 'Poison', 'Horseshoe', 'Axe', 'Bat'] },
+            { id: 'Room', values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study', 'Library', 'Billiard', 'Conservatory', 'Cellar'] },
+            { id: 'Gold', values: ['10', '20', '30', '40', '50', '60', '70', '80', '90', '100'], type: CategoryType.ORDINAL },
+            { id: 'Motive', values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage', 'Love', 'Blackmail', 'Accident', 'Madness'] }
+        ];
+
+        // Try to find a default that isn't already used (by ID)
+        // Or just based on index... index is easier but if user deleted #2 and adds new, they get #3?
+        // Let's rely on index for simplicity, or find first unused default?
+        // Finding first unused default is better UX.
+
+        const existingIds = new Set(newCats.map(c => c.id));
+        const smartDefault = defaults.find(d => !existingIds.has(d.id));
+
+        let newCatConfig: AppCategoryConfig;
+
+        if (smartDefault) {
+            // Trim values to current nItems
+            const defValues = smartDefault.values.slice(0, nItems);
+            // If we need more than default has, pad with Item X
+            while (defValues.length < nItems) {
+                defValues.push(`Item ${defValues.length + 1}`);
+            }
+
+            newCatConfig = {
+                id: smartDefault.id,
+                values: defValues,
+                type: smartDefault.type || CategoryType.NOMINAL
+            };
+        } else {
+            // Generic Fallback
+            const newValues = Array(nItems).fill('').map((_, i) => `Item ${i + 1}`);
+            newCatConfig = {
+                id: `Category ${newCats.length + 1}`,
+                type: CategoryType.NOMINAL,
+                values: newValues
+            };
+        }
+
+        newCats.push(newCatConfig);
         onDraftUpdate(newCats);
     };
 
@@ -331,9 +369,8 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
     };
 
     return (
-        <div style={{ padding: '20px', backgroundColor: '#333', borderRadius: '8px', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px', alignItems: 'center' }}>
-                <h4 style={{ margin: 0, color: '#fff' }}>Edit Categories</h4>
+        <div style={{ marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '15px', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: '10px' }}>
                     <button
                         onClick={handleAddGlobalItem}
@@ -660,38 +697,39 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                     );
                 })}
             </div>
-
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #444', paddingTop: '15px' }}>
-                <button
-                    onClick={onCancel}
-                    style={{
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        border: '1px solid #555',
-                        background: 'transparent',
-                        color: '#ddd',
-                        cursor: 'pointer'
-                    }}
-                >
-                    Cancel
-                </button>
-                <button
-                    onClick={onSave}
-                    disabled={hasAnyError || !isDirty}
-                    style={{
-                        padding: '8px 16px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: (hasAnyError || !isDirty) ? '#555' : '#3b82f6',
-                        color: (hasAnyError || !isDirty) ? '#aaa' : 'white',
-                        fontWeight: 'bold',
-                        cursor: (hasAnyError || !isDirty) ? 'not-allowed' : 'pointer',
-                        opacity: (hasAnyError || !isDirty) ? 0.7 : 1
-                    }}
-                >
-                    Save Changes
-                </button>
-            </div>
+            {!hideFooter && (
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #444', paddingTop: '15px' }}>
+                    <button
+                        onClick={onCancel}
+                        style={{
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            border: '1px solid #555',
+                            background: 'transparent',
+                            color: '#ddd',
+                            cursor: 'pointer'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        onClick={onSave}
+                        disabled={hasAnyError || !isDirty}
+                        style={{
+                            padding: '8px 16px',
+                            borderRadius: '4px',
+                            border: 'none',
+                            background: (hasAnyError || !isDirty) ? '#555' : '#3b82f6',
+                            color: (hasAnyError || !isDirty) ? '#aaa' : 'white',
+                            fontWeight: 'bold',
+                            cursor: (hasAnyError || !isDirty) ? 'not-allowed' : 'pointer',
+                            opacity: (hasAnyError || !isDirty) ? 0.7 : 1
+                        }}
+                    >
+                        Save Changes
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

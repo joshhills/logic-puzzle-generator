@@ -4,14 +4,14 @@ import { Clue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 import type { Generator } from './Generator';
-import { ConfigurationError } from '../errors';
+
 
 export class GenerativeSession {
     private grid: LogicGrid;
     private availableClues: Clue[] = [];
     private proofChain: Clue[] = [];
     private solver: Solver;
-    private history: Set<string> = new Set(); // dedupe keys
+
 
     private historyStack: LogicGrid[] = [];
 
@@ -134,4 +134,6 @@ export class GenerativeSession {
     // Getters for UI
     public getGrid(): LogicGrid { return this.grid; }
     public getProofChain(): Clue[] { return this.proofChain; }
+    public getSolution(): Solution { return this.solution; }
+    public getValueMap(): Map<ValueLabel, Record<string, ValueLabel>> { return this.valueMap; }
 }

@@ -11,10 +11,11 @@ interface SidebarProps {
     onImport?: () => void;
     onSave?: () => void;
     onManageSaves?: () => void;
+    onInfo?: () => void;
     isDirty?: boolean;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport, onSave, onManageSaves, isDirty = true }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport, onSave, onManageSaves, onInfo, isDirty = true }) => {
     return (
         <div className="sidebar">
             <div style={{ marginBottom: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -155,9 +156,57 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                 )}
             </div>
 
+            <div style={{ padding: '0 5px' }}>
+                <a
+                    href="https://ko-fi.com/I2I51WSPZ"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                        display: 'block',
+                        width: '100%',
+                        marginTop: '10px',
+                        marginBottom: '20px',
+                        transition: 'opacity 0.2s',
+                        textDecoration: 'none'
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.opacity = '0.9'}
+                    onMouseOut={(e) => e.currentTarget.style.opacity = '1'}
+                >
+                    <img
+                        src="./support_me_on_kofi_blue.webp"
+                        alt="Support me on Ko-fi"
+                        style={{ width: '100%', height: '44px', objectFit: 'contain', display: 'block', border: '0px' }}
+                    />
+                </a>
+            </div>
+
             <div style={{ marginTop: 'auto', paddingTop: '20px', borderTop: '1px solid #333', fontSize: '0.85em', color: '#666' }}>
-                <div style={{ marginBottom: '8px' }}>
-                    Built by <a href="https://joshhills.dev" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'none' }}>Josh Hills</a>
+                <div style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div>
+                        Built by <a href="https://joshhills.dev" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6', textDecoration: 'none' }}>Josh Hills</a>
+                    </div>
+                    {onInfo && (
+                        <button
+                            onClick={onInfo}
+                            title="About Logic Puzzle Generator"
+                            style={{
+                                background: 'transparent',
+                                border: '1px solid #444',
+                                borderRadius: '50%',
+                                color: '#888',
+                                width: '20px',
+                                height: '20px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            ?
+                        </button>
+                    )}
                 </div>
                 <div>
                     <a href="https://github.com/joshhills/logic-puzzle-generator" target="_blank" rel="noopener noreferrer" style={{ color: '#888', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '5px' }}>

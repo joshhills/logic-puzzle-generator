@@ -18,3 +18,20 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+@media (max-width: 768px) {
+  .grid-container {
+    border-radius: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-radius: 0 !important;
+    width: 100% !important;
+    padding: 20px 0 !important;
+    box-shadow: none !important;
+  }
+
+  .header-reset-btn {
+    padding: 8px 12px !important;
+    font-size: 0.9em !important;
+  }
+}

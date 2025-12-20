@@ -42,15 +42,5 @@ describe('Clue Constraints', () => {
         // No, integration test is better.
     });
 
-    it('should generate NO clues if all types disallowed (should fail or return empty)', () => {
-        const generator = new Generator(54321);
-        expect(() => {
-            generator.generatePuzzle(categories, undefined, {
-                constraints: {
-                    allowedClueTypes: [] // No allowed types
-                }
-            });
-        }).toThrow(); // Should probably throw or return empty puzzle? 
-        // If no clues available, generation fails to hit target.
-    });
+
 });

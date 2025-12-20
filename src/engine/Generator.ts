@@ -4,6 +4,7 @@ import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinal
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 import { GenerativeSession } from './GenerativeSession';
+import { getRecommendedBounds } from './DifficultyBounds';
 
 /**
  * Represents a single step in the logical deduction path.
@@ -56,6 +57,10 @@ export interface GeneratorOptions {
      * Constraints to filter the types of clues generated.
      */
     constraints?: ClueGenerationConstraints;
+    /**
+     * Callback for trace logs execution details.
+     */
+    onTrace?: (message: string) => void;
 }
 
 // A simple seeded PRNG (mulberry32)
@@ -141,11 +146,11 @@ export class Generator {
         target?: TargetFact,
         config: GeneratorOptions = {}
     ): Puzzle {
-        const { targetClueCount = 5, maxCandidates = 50, timeoutMs = 10000 } = config;
+        const { targetClueCount, maxCandidates = 50, timeoutMs = 10000 } = config;
 
         // Validation
         if (categories.length < 2) throw new ConfigurationError("Must have at least 2 categories.");
-        if (targetClueCount < 1) throw new ConfigurationError("Target clue count must be at least 1");
+        if (targetClueCount !== undefined && targetClueCount < 1) throw new ConfigurationError("Target clue count must be at least 1");
         if (maxCandidates < 1) throw new ConfigurationError("maxCandidates must be at least 1");
 
         // Synthesize Target if Missing
@@ -177,7 +182,7 @@ export class Generator {
             throw new ConfigurationError('Target fact must refer to two different categories.');
         }
 
-        return this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints });
+        return this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints, onTrace: config.onTrace });
     }
 
     /**
@@ -232,6 +237,8 @@ export class Generator {
         const maxCandidates = options?.maxCandidates ?? Infinity;
         const targetCount = options?.targetClueCount;
         const constraints = options?.constraints;
+
+        if (options?.onTrace) options.onTrace("Generator: internalGenerate started.");
 
         // Ensure values exist (start of orphan code)
         const cat1 = categories.find(c => c.id === target.category1Id);
@@ -304,15 +311,28 @@ export class Generator {
         this.valueMap = new Map();
         this.solution = {};
         this.reverseSolution = new Map();
+
+        if (options?.onTrace) options.onTrace("Generator: Creating solution...");
         this.createSolution(categories, this.valueMap, this.solution, this.reverseSolution);
+        if (options?.onTrace) options.onTrace("Generator: Solution created.");
 
         // Backtracking Method (Exact Target)
         if (targetCount !== undefined) {
             // Feasibility Check:
-            // Run a quick simulation (3 iterations) to see if the target count is realistic.
-            const bounds = this.getClueCountBounds(categories, target, 3);
-            const MARGIN = 0;
+            // Use precompiled bounds instead of expensive simulation.
+            // if (options?.onTrace) options.onTrace("Generator: Checking feasibility (static bounds lookup)...");
 
+            // Assume 5 items per cat max if 5x10, etc. 
+            // Actually getRecommendedBounds needs numCats and numItems.
+            // We can approximate numItems from the first category (assuming symmetry).
+            const numCats = categories.length;
+            const numItems = categories[0].values.length;
+
+            const bounds = getRecommendedBounds(numCats, numItems);
+
+            if (options?.onTrace) options.onTrace(`Generator: Feasibility check complete. Recommended bounds: ${bounds.min}-${bounds.max}`);
+
+            const MARGIN = 0;
             let effectiveTarget = targetCount;
             if (bounds.min > 0 && targetCount < (bounds.min - MARGIN)) {
                 console.warn(`Target clue count ${targetCount} is too low (Estimated min: ${bounds.min}). Auto-adjusting to ${bounds.min}.`);
@@ -329,7 +349,8 @@ export class Generator {
                     maxCandidates,
                     strategy,
                     options?.timeoutMs ?? 10000,
-                    options?.constraints
+                    options?.constraints,
+                    options?.onTrace
                 );
             } catch (e: any) {
                 // If it failed (timeout or exhausted), fallback?
@@ -337,7 +358,9 @@ export class Generator {
             }
         }
 
+        if (options?.onTrace) options.onTrace("Generator: Generating all possible clues...");
         let availableClues = this.generateAllPossibleClues(categories, options?.constraints, this.reverseSolution, this.valueMap);
+        if (options?.onTrace) options.onTrace(`Generator: Generated ${availableClues.length} candidate clues.`);
 
         const logicGrid = new LogicGrid(categories);
 
@@ -345,6 +368,25 @@ export class Generator {
         const MAX_STEPS = 100;
 
         while (proofChain.length < MAX_STEPS) {
+            // Trace Support for Standard Mode
+            if (options?.onTrace) {
+                const depth = proofChain.length;
+                const stats = logicGrid.getGridStats();
+                // Ensure denominator is valid and non-zero. 
+                // totalPossible = N*N*C*(C-1)/2 (approx). 
+                // solutionPossible = N*C*(C-1)/2 (exact matches).
+                const range = Math.max(1, stats.totalPossible - stats.solutionPossible);
+                const current = Math.max(0, stats.currentPossible - stats.solutionPossible);
+                const solvedP = Math.min(100, Math.round(((range - current) / range) * 100));
+
+                options.onTrace(`Depth ${depth}: ${solvedP}% Solved. Candidates: ${availableClues.length}`);
+
+                if (solvedP >= 100 && this.isPuzzleSolved(logicGrid, this.solution, this.reverseSolution)) {
+                    options.onTrace("Generator: Puzzle Solved (100%).");
+                    break;
+                }
+            }
+
             let bestCandidate: { clue: Clue, score: number } | null = null;
             let finalCandidate: { clue: Clue, score: number } | null = null;
 
@@ -444,22 +486,46 @@ export class Generator {
         maxCandidates: number,
         strategy: 'standard' | 'min' | 'max',
         timeoutMs: number = 10000,
-        constraints?: ClueGenerationConstraints
+        constraints?: ClueGenerationConstraints,
+        onTrace?: (msg: string) => void
     ): Puzzle {
         const availableClues = this.generateAllPossibleClues(categories, constraints, this.reverseSolution, this.valueMap);
-        const logicGrid = new LogicGrid(categories);
 
-        // Timeout protection
+        // ADAPTIVE MID-RUN BACKTRACKING
+        // Instead of restarting, we increase aggression dynamically when we hit dead ends.
+        const logicGrid = new LogicGrid(categories);
+        let backtrackCount = 0;
         const startTime = Date.now();
+
+
+        // Define recursive search within this attempt context
 
         const search = (currentGrid: LogicGrid, currentChain: ProofStep[], currentAvailable: Clue[]): ProofStep[] | null => {
             if (Date.now() - startTime > timeoutMs) return null;
+
+            // Panic faster: Increase bias by 5% per backtrack instead of 0.5%
+            const aggressionBias = 1.0 + (backtrackCount * 0.05);
+
+            // Trace Status
+            if (onTrace && currentChain.length % 1 === 0) {
+                const depth = currentChain.length;
+                const stats = currentGrid.getGridStats();
+                const solvedP = Math.round(((stats.totalPossible - stats.currentPossible) / (stats.totalPossible - stats.solutionPossible)) * 100);
+
+                if (Math.random() < 0.05) {
+                    onTrace(`Depth ${depth}/${targetCount}: ${solvedP}% Solved. Bias: ${aggressionBias.toFixed(2)} (Backtracks: ${backtrackCount})`);
+                }
+            }
 
             // Check if solved
             const isSolved = this.isPuzzleSolved(currentGrid, this.solution, this.reverseSolution);
 
             if (isSolved) {
-                return currentChain.length === targetCount ? currentChain : null;
+                if (currentChain.length === targetCount) {
+                    if (onTrace) onTrace(`SOLVED! Exact match at ${targetCount} clues.`);
+                    return currentChain;
+                }
+                return null;
             }
 
             if (currentChain.length >= targetCount) {
@@ -481,7 +547,10 @@ export class Generator {
             // If we need 10 steps and we are at step 2 with 50% solved, we need to SLOW DOWN.
             // If we need 10 steps and we are at step 8 with 10% solved, we need to SPEED UP.
 
-            const needsToSpeedUp = progress < (stepsTaken / targetCount);
+            // Bias the expected progress. 
+            // E.g. Bias 1.2 => We expect 20% more progress than linear.
+            // If actual progress is lagging behind this boosted expectation, we panic and speed up.
+            const needsToSpeedUp = progress < ((stepsTaken / targetCount) * aggressionBias);
 
             // Filter and Sort Candidates
             let candidates: { clue: Clue, deductions: number, score: number, grid: LogicGrid, index: number }[] = [];
@@ -494,7 +563,24 @@ export class Generator {
                 }
             }
 
-            const limit = Math.min(currentAvailable.length, maxCandidates);
+            // DYNAMIC PRUNING
+            // As aggression increases (panic mode), we reduce the search width.
+            // This forces the algorithm to give up on "ok" candidates and backtrack deeper
+            // if the "best" candidates don't work immediately.
+            // This prevents thrashing at the bottom of the tree (trying 50 mediocre candidates at Depth 34).
+            // At Bias 1.0: Check all maxCandidates (e.g. 50).
+            // At Bias 1.26 (50 backtracks): Check 50 / 2 = 25.
+            // At Bias 1.58 (100 backtracks): Check 50 / 4 = 12.
+            const baseMax = (maxCandidates === Infinity) ? 50 : maxCandidates;
+            // Use cubic power to aggressively drop limit as bias increases
+            const dynamicLimit = Math.max(1, Math.floor(baseMax / Math.pow(aggressionBias, 3)));
+            const limit = Math.min(currentAvailable.length, dynamicLimit);
+
+            // Debug pruning
+            if (onTrace && Math.random() < 0.001) {
+                onTrace(`Pruning: Limit reduced to ${limit} (Bias ${aggressionBias.toFixed(1)})`);
+            }
+
             let checked = 0;
 
             for (let i = 0; i < currentAvailable.length; i++) {
@@ -524,7 +610,23 @@ export class Generator {
                 // Combine: Heuristic (Hitting the target count) + Quality (Good puzzle design)
                 // We weight Heuristic higher because hitting the target count is the hard constraint,
                 // but Quality handles the tie-breaking.
+
+                // CRITICAL FIX: If we are near the end, forcing the solution is paramount.
+                const isFinalStretch = stepsTaken >= (targetCount - 2);
+                const isVeryFinal = stepsTaken === targetCount;
+
+                if (isFinalStretch) {
+                    // Exponentially increase weight of deduction score
+                    heuristicScore *= 10;
+                    if (isVeryFinal) heuristicScore *= 10; // MUST SOLVE
+                }
+
                 let score = heuristicScore + qualityScore;
+
+                // If this is the last step and it solves the puzzle, give it infinite priority
+                if (isVeryFinal && this.isPuzzleSolved(tempGrid, this.solution, this.reverseSolution)) {
+                    score += 1000000;
+                }
 
                 // Add randomness to score to prevent determinism
                 score += this.random();
@@ -542,23 +644,25 @@ export class Generator {
                 if (result) return result;
             }
 
+            backtrackCount++;
             return null;
         };
 
-        const resultChain = search(logicGrid, [], availableClues);
-
-        if (!resultChain) {
-            throw new ConfigurationError(`Could not generate puzzle with exactly ${targetCount} clues within timeout.`);
+        const result = search(logicGrid, [], [...availableClues]);
+        if (result) {
+            return {
+                solution: this.solution,
+                clues: result.map(p => p.clue),
+                proofChain: result,
+                categories,
+                targetFact: target,
+            };
         }
 
-        return {
-            solution: this.solution,
-            clues: resultChain.map(p => p.clue),
-            proofChain: resultChain,
-            categories,
-            targetFact: target
-        };
+        throw new ConfigurationError(`Could not generate puzzle with exactly ${targetCount} clues within timeout.`);
     }
+
+
 
 
 
