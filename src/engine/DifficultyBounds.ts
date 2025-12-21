@@ -58,3 +58,11 @@ export const getRecommendedBounds = (numCats: number, numItems: number) => {
 
     return { min, max };
 };
+export const getRecommendedSweetSpot = (numCats: number, numItems: number) => {
+    const bounds = getRecommendedBounds(numCats, numItems);
+    // Sweet spot: 1.0x to 1.5x of minimum required clues for parity/solvability
+    return {
+        min: bounds.min,
+        max: Math.min(bounds.max, Math.ceil(bounds.min * 1.5))
+    };
+};

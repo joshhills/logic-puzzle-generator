@@ -142,7 +142,8 @@
 
   /* Hiding Configuration Steps */
   .step-structure,
-  .step-goal {
+  .step-goal,
+  .step-generate {
     display: none !important;
   }
 

@@ -1,6 +1,8 @@
 import React from 'react';
 import { CategoryType } from '../../../src/index';
-import { AppCategoryConfig } from '../types';
+import { AppCategoryConfig, CategoryLabels } from '../types';
+import { Clue, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter } from '../../../src/index';
+import { renderPlainLanguageClue } from '../utils/clueRenderer';
 
 interface CategoryEditorProps {
     originalCategories: AppCategoryConfig[];
@@ -81,6 +83,12 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
     };
 
 
+
+    const handleLabelChange = (idx: number, field: keyof CategoryLabels, newVal: string | boolean) => {
+        const newCats = [...draftCategories];
+        newCats[idx] = { ...newCats[idx], labels: { ...newCats[idx].labels, [field]: newVal } };
+        onDraftUpdate(newCats);
+    };
 
     const handleValueChange = (catIdx: number, valIdx: number, rawValue: string) => {
         const newCats = [...draftCategories];
@@ -248,11 +256,11 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
 
         // Smart Defaults (Cluedo-esque)
         const defaults = [
-            { id: 'Suspect', values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White', 'Rose', 'Peach', 'Brunette', 'Grey'] },
-            { id: 'Weapon', values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench', 'Poison', 'Horseshoe', 'Axe', 'Bat'] },
-            { id: 'Room', values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study', 'Library', 'Billiard', 'Conservatory', 'Cellar'] },
-            { id: 'Gold', values: ['10', '20', '30', '40', '50', '60', '70', '80', '90', '100'], type: CategoryType.ORDINAL },
-            { id: 'Motive', values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage', 'Love', 'Blackmail', 'Accident', 'Madness'] }
+            { id: 'Suspect', values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White', 'Rose', 'Peach', 'Brunette', 'Grey'], labels: { groupName: 'suspect', verb: 'is', includeGroupName: true, valuePrefix: '' } as CategoryLabels },
+            { id: 'Weapon', values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench', 'Poison', 'Horseshoe', 'Axe', 'Bat'], labels: { groupName: 'weapon', verb: 'has', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the person with the' } as CategoryLabels },
+            { id: 'Room', values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study', 'Library', 'Billiard', 'Conservatory', 'Cellar'], labels: { groupName: 'room', verb: 'is in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'is not in', subjectPrefix: 'the person in the' } as CategoryLabels },
+            { id: 'Gold', values: ['10', '20', '30', '40', '50', '60', '70', '80', '90', '100'], type: CategoryType.ORDINAL, labels: { groupName: 'gold', verb: 'has', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', subjectPrefix: 'the person with', valueSuffix: 'gold' } as CategoryLabels },
+            { id: 'Motive', values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage', 'Love', 'Blackmail', 'Accident', 'Madness'], labels: { groupName: 'motive', verb: 'is', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the person whose motive is' } as CategoryLabels }
         ];
 
         // Try to find a default that isn't already used (by ID)
@@ -276,15 +284,18 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
             newCatConfig = {
                 id: smartDefault.id,
                 values: defValues,
-                type: smartDefault.type || CategoryType.NOMINAL
+                type: smartDefault.type || CategoryType.NOMINAL,
+                labels: { ...smartDefault.labels }
             };
         } else {
             // Generic Fallback
             const newValues = Array(nItems).fill('').map((_, i) => `Item ${i + 1}`);
+            const newId = `Category ${newCats.length + 1}`;
             newCatConfig = {
-                id: `Category ${newCats.length + 1}`,
+                id: newId,
                 type: CategoryType.NOMINAL,
-                values: newValues
+                values: newValues,
+                labels: { groupName: newId.toLowerCase(), verb: 'is', includeGroupName: true, valuePrefix: '' }
             };
         }
 
@@ -536,28 +547,8 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                             <option value={CategoryType.NOMINAL}>Nominal</option>
                                             <option value={CategoryType.ORDINAL}>Ordinal</option>
                                         </select>
-                                        {/* Alignment Spacer (Only if this is the last element in row, which it might not be if Ordinal) */}
-                                        {canDeleteItems && !isOrdinal && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
                                     </div>
                                 </div>
-
-                                {isOrdinal && (
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase' }}>Format</label>
-                                        <div style={{ display: 'flex', gap: GAP }}>
-                                            <select
-                                                value={isDate ? 'date' : 'text'}
-                                                onChange={(e) => handleDisplayTypeChange(i, e.target.value as 'text' | 'date')}
-                                                style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
-                                            >
-                                                <option value="text">Number</option>
-                                                <option value="date">Date</option>
-                                            </select>
-                                            {/* Alignment Spacer for the last element */}
-                                            {canDeleteItems && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
 
                             {/* Values List */}
@@ -697,6 +688,7 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                     );
                 })}
             </div>
+
             {!hideFooter && (
                 <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #444', paddingTop: '15px' }}>
                     <button

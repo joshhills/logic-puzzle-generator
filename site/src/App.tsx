@@ -1,29 +1,56 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
-import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType, GenerativeSession, Clue } from '../../src/index';
+import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType, GenerativeSession, Clue, CrossOrdinalOperator, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, ValueLabel } from '../../src/index';
 import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
 import { SavedGamesModal, SavedPuzzle } from './components/SavedGamesModal';
-import { AppCategoryConfig } from './types';
-import { getRecommendedBounds } from '../../src/engine/DifficultyBounds';
+import { AppCategoryConfig, CategoryLabels } from './types';
+import { getRecommendedBounds, getRecommendedSweetSpot } from '../../src/engine/DifficultyBounds';
 import PuzzleWorker from './worker/puzzle.worker?worker';
+import { renderPlainLanguageClue } from './utils/clueRenderer';
+import { StoryEditor } from './components/StoryEditor';
 
-// Steps: 0=Structure, 1=Goal, 2=Generate, 3=Solution
-const STEPS = ['Structure', 'Goal', 'Generate', 'Solution'];
+// Steps: 0=Structure, 1=Story, 2=Goal, 3=Generate, 4=Solution
+const STEPS = ['Structure', 'Story', 'Goal', 'Generate', 'Solution'];
 
 // Helper to generate defaults
-const generateDefaultCategories = (nCats: number, nItems: number): CategoryConfig[] => {
-  const newCats: CategoryConfig[] = [];
+const generateDefaultCategories = (nCats: number, nItems: number): AppCategoryConfig[] => {
+  const newCats: AppCategoryConfig[] = [];
 
   // Cluedo-esque Defaults
   const defaults = [
-    { id: 'Suspect', values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White'] },
-    { id: 'Weapon', values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench'] },
-    { id: 'Room', values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study'] },
-    { id: 'Gold', values: ['10', '20', '30', '40', '50', '60'], type: CategoryType.ORDINAL },
-    { id: 'Motive', values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage'] }
+    {
+      id: 'Suspect',
+      values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White'],
+      type: CategoryType.NOMINAL,
+      labels: { groupName: 'suspect', verb: 'is', includeGroupName: true, valuePrefix: '' }
+    },
+    {
+      id: 'Weapon',
+      values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench'],
+      type: CategoryType.NOMINAL,
+      labels: { groupName: 'weapon', verb: 'has', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the person with the' }
+    },
+    {
+      id: 'Room',
+      values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study'],
+      type: CategoryType.NOMINAL,
+      labels: { groupName: 'room', verb: 'is in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'is not in', subjectPrefix: 'the person in the' }
+    },
+    {
+      id: 'Gold',
+      values: ['10', '20', '30', '40', '50', '60'],
+      type: CategoryType.ORDINAL,
+      labels: { groupName: 'gold', verb: 'has', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', subjectPrefix: 'the person with', valueSuffix: 'gold' }
+    },
+    {
+      id: 'Motive',
+      values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage'],
+      type: CategoryType.NOMINAL,
+      labels: { groupName: 'motive', verb: 'is', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the person whose motive is' }
+    }
   ];
 
   for (let c = 0; c < nCats; c++) {
@@ -42,14 +69,15 @@ const generateDefaultCategories = (nCats: number, nItems: number): CategoryConfi
     newCats.push({
       id: def ? def.id : `Category ${c + 1}`,
       values: values,
-      type: (def && def.type) ? def.type : CategoryType.NOMINAL
-    });
+      type: (def && def.type) ? def.type : CategoryType.NOMINAL,
+      labels: (def && def.labels) ? { ...def.labels } : {}
+    } as AppCategoryConfig);
   }
   return newCats;
 };
 
 // --- Persistence Config ---
-const DATA_VERSION = 1;
+const DATA_VERSION = 2;
 const STORAGE_KEY = 'logic_puzzle_state';
 
 function App() {
@@ -61,13 +89,7 @@ function App() {
   const [categories, setCategories] = useState<AppCategoryConfig[]>(() => generateDefaultCategories(3, 4));
 
   // Async Generation State
-  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const workerRef = useRef<Worker | null>(null);
-
-  // Helper to append logs
-  const addLog = (msg: string) => {
-    setGenerationLogs(prev => [...prev.slice(-99), msg]); // Keep last 100 logs
-  };
 
   // Cleanup worker on unmount
   useEffect(() => {
@@ -567,7 +589,6 @@ function App() {
       workerRef.current = null;
     }
     setIsGenerating(false);
-    addLog("Generation cancelled by user.");
   };
 
   const handleGenerate = () => {
@@ -576,7 +597,6 @@ function App() {
 
     setIsGenerating(true);
     setTimeLeft(180); // 3 minutes (Sync with timeoutMs)
-    setGenerationLogs([]); // Clear logs
 
     // String Hashing for Seed
     const getSeed = (input: string): number => {
@@ -618,13 +638,21 @@ function App() {
     if (isInteractiveMode) {
       try {
         const gen = new Generator(s);
-        const sess = gen.startSession(categories, targetFact);
-        setSession(sess);
+        const ss = gen.startSession(categories, targetFact);
+        setSession(ss);
         setInteractiveSolved(false);
-        setNextClueConstraints([...allowedClueTypes]);
+
+        // Filter constraints to only what is actually supported by current categories
+        const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+        const filteredSupportedTypes = allowedClueTypes.filter(type => {
+          if (type === ClueType.CROSS_ORDINAL) return ordinalCount >= 2;
+          if ([ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY].includes(type)) return ordinalCount >= 1;
+          return true;
+        });
+        setNextClueConstraints(filteredSupportedTypes);
 
         setPuzzle({
-          solution: sess.getSolution(),
+          solution: ss.getSolution(),
           clues: [],
           proofChain: [],
           categories: categories,
@@ -632,8 +660,8 @@ function App() {
         } as any);
 
         setSelectedStep(-2);
-        setActiveStep(3);
-        setMaxReachedStep(3);
+        setActiveStep(4);
+        setMaxReachedStep(4);
       } catch (e: any) {
         console.error(e);
         showAlert("Interactive Mode Error", e.message);
@@ -652,7 +680,7 @@ function App() {
       workerRef.current.onmessage = (e) => {
         const { type } = e.data;
         if (type === 'trace') {
-          addLog(e.data.message);
+          // Logger removed
         } else if (type === 'done') {
           const { puzzle } = e.data;
           setPuzzle(puzzle);
@@ -665,8 +693,8 @@ function App() {
           }
 
           setSelectedStep(-2);
-          setActiveStep(3);
-          setMaxReachedStep(3);
+          setActiveStep(4);
+          setMaxReachedStep(4);
           setIsGenerating(false);
           workerRef.current?.terminate();
           workerRef.current = null;
@@ -711,7 +739,7 @@ function App() {
   };
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  const maxStep = puzzle ? 3 : Math.min(maxReachedStep, 2);
+  const maxStep = puzzle ? 4 : Math.min(maxReachedStep, 3);
 
   const jumpToStep = (idx: number) => {
     if (idx > maxStep) return;
@@ -852,46 +880,131 @@ function App() {
             hideFooter={true}
           />
 
-          <button
-            onClick={(e) => { e.stopPropagation(); setActiveStep(1); }}
-            style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', float: 'right' }}
-          >
-            Continue
-          </button>
+          {activeStep === 0 && (
+            <div className="step-nav" style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: '#3b82f6',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+                onClick={() => setActiveStep(1)}
+              >
+                Next: Tell the Story
+                <span>&rarr;</span>
+              </button>
+            </div>
+          )}
           <div style={{ clear: 'both' }}></div>
         </div>
       )}
     </div>
   );
 
+  const renderStoryStep = () => {
+    return (
+      <div
+        key="step1"
+        className="step-story"
+        ref={(el) => { if (el) stepRefs.current[1] = el; }}
+        onClick={() => activeStep > 1 && jumpToStep(1)}
+        style={{
+          backgroundColor: '#2a2a35',
+          borderRadius: '12px',
+          marginBottom: '20px',
+          scrollMarginTop: '20px',
+          opacity: activeStep < 1 ? 0.5 : 1,
+          cursor: activeStep > 1 ? 'pointer' : 'default',
+          transition: 'all 0.3s',
+          border: activeStep === 1 ? '1px solid #3b82f6' : '1px solid transparent'
+        }}
+      >
+        <div style={{ padding: '20px', borderBottom: activeStep === 1 ? '1px solid #333' : 'none' }}>
+          <h3 style={{ margin: 0, color: '#fff' }}>2. Tell the Story</h3>
+        </div>
+
+        {activeStep === 1 && (
+          <div style={{ padding: '0 20px 20px 20px' }}>
+            <p className="step-desc">Refine how the clues will read. Set unit names, possessive relationships, and natural language prefixes.</p>
+            <StoryEditor
+              categories={categories}
+              onLabelChange={(idx, field, val) => {
+                const newCats = [...categories];
+                newCats[idx] = { ...newCats[idx], labels: { ...newCats[idx].labels, [field]: val } };
+                setCategories(newCats);
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px' }}>
+              <button
+                onClick={() => setActiveStep(0)}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: 'transparent',
+                  color: '#aaa',
+                  border: '1px solid #444',
+                  borderRadius: '6px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#666'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = '#444'}
+              >
+                &larr; Back
+              </button>
+              <button
+                onClick={() => setActiveStep(2)}
+                style={{ padding: '12px 24px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+              >
+                Continue to Goal
+                <span>&rarr;</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderGoalStep = () => (
     <div
-      key="step1"
+      key="step2"
       className="step-goal"
-      ref={(el) => { if (el) stepRefs.current[1] = el; }}
-      onClick={() => activeStep > 1 && jumpToStep(1)}
+      ref={(el) => { if (el) stepRefs.current[2] = el; }}
+      onClick={() => activeStep > 2 && jumpToStep(2)}
       style={{
         backgroundColor: '#2a2a35',
         borderRadius: '12px',
         marginBottom: '20px',
         scrollMarginTop: '20px',
-        opacity: activeStep < 1 ? 0.5 : 1,
-        cursor: activeStep > 1 ? 'pointer' : 'default',
+        opacity: activeStep < 2 ? 0.5 : 1,
+        cursor: activeStep > 2 ? 'pointer' : 'default',
         transition: 'all 0.3s',
-        border: activeStep === 1 ? '1px solid #3b82f6' : '1px solid transparent'
+        border: activeStep === 2 ? '1px solid #3b82f6' : '1px solid transparent'
       }}
     >
-      <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, color: '#fff' }}>2. Goal</h3>
-        {activeStep !== 1 && activeStep > 1 && <div style={{ color: '#aaa' }}>{useSpecificGoal ? 'Specific Goal' : 'Full Board'}</div>}
+      <div style={{ padding: '20px', borderBottom: activeStep === 2 ? '1px solid #333' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h3 style={{ margin: 0, color: '#fff' }}>3. Set the Goal</h3>
+        {activeStep !== 2 && activeStep > 2 && <div style={{ color: '#aaa' }}>{useSpecificGoal ? 'Specific Target' : 'Full Grid'}</div>}
       </div>
 
-      {activeStep === 1 && (
+      {activeStep === 2 && (
         <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Puzzle Title (Optional)</label>
             <input
-              type="text"
               value={puzzleTitle}
               onChange={(e) => setPuzzleTitle(e.target.value)}
               placeholder="My Awesome Puzzle"
@@ -992,13 +1105,34 @@ function App() {
             )}
           </div>
 
-          <button
-            onClick={(e) => { e.stopPropagation(); setActiveStep(2); }}
-            style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', float: 'right' }}
-          >
-            Continue
-          </button>
-          <div style={{ clear: 'both' }}></div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px' }}>
+            <button
+              onClick={() => setActiveStep(1)}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: 'transparent',
+                color: '#aaa',
+                border: '1px solid #444',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.borderColor = '#666'}
+              onMouseLeave={(e) => e.currentTarget.style.borderColor = '#444'}
+            >
+              &larr; Back
+            </button>
+            <button
+              onClick={() => setActiveStep(3)}
+              style={{ padding: '12px 24px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+            >
+              Continue to Generate
+              <span>&rarr;</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1006,27 +1140,27 @@ function App() {
 
   const renderGenerateStep = () => (
     <div
-      key="step2"
+      key="step3"
       className="step-generate"
-      ref={(el) => { if (el) stepRefs.current[2] = el; }}
-      onClick={() => activeStep > 2 && jumpToStep(2)}
+      ref={(el) => { if (el) stepRefs.current[3] = el; }}
+      onClick={() => activeStep > 3 && jumpToStep(3)}
       style={{
         backgroundColor: '#2a2a35',
         borderRadius: '12px',
         marginBottom: '20px',
         scrollMarginTop: '20px',
-        opacity: activeStep < 2 ? 0.5 : 1,
-        cursor: activeStep > 2 ? 'pointer' : 'default',
+        opacity: activeStep < 3 ? 0.5 : 1,
+        cursor: activeStep > 3 ? 'pointer' : 'default',
         transition: 'all 0.3s',
-        border: activeStep === 2 ? '1px solid #8ec07c' : '1px solid transparent'
+        border: activeStep === 3 ? '1px solid #8ec07c' : '1px solid transparent'
       }}
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, color: '#fff' }}>3. Generate</h3>
-        {activeStep !== 2 && activeStep > 2 && <div style={{ color: '#aaa' }}>{isInteractiveMode ? 'Interactive' : (useTargetClueCount ? `${targetClueCount} Clues` : 'Full Puzzle')}</div>}
+        <h3 style={{ margin: 0, color: '#fff' }}>4. Generate</h3>
+        {activeStep !== 3 && activeStep > 3 && <div style={{ color: '#aaa' }}>{isInteractiveMode ? 'Interactive' : (useTargetClueCount ? `${targetClueCount} Clues` : 'Full Puzzle')}</div>}
       </div>
 
-      {activeStep === 2 && (
+      {activeStep === 3 && (
         <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.2em', fontWeight: 'bold', color: '#8ec07c' }}>
@@ -1057,7 +1191,7 @@ function App() {
                     checked={useTargetClueCount}
                     onChange={(e) => setUseTargetClueCount(e.target.checked)}
                   />
-                  Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
+                  <span>Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})</span>
                 </label>
               </div>
               {useTargetClueCount && (
@@ -1074,12 +1208,16 @@ function App() {
                 </div>
               )}
               {useTargetClueCount && (
-                <div style={{ fontSize: '0.85em', color: '#eab308', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div style={{ fontSize: '0.85em', color: '#f97316', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span>⚠️</span>
-                  <span>Note: Exact clue targets may take longer to generate or timeout.</span>
+                  <span>
+                    Exact clue targets may take longer to generate or timeout.
+                    (Recommended Sweet Spot: {getRecommendedSweetSpot(numCats, numItems).min} - {getRecommendedSweetSpot(numCats, numItems).max})
+                  </span>
                 </div>
               )}
             </div>
+
           )}
 
           <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
@@ -1103,13 +1241,26 @@ function App() {
                         { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' }
                       ].find(o => o.type === type)!;
                       const isOrdinalDependent = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL].includes(opt.type);
-                      const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
-                      const isDisabled = isOrdinalDependent && !hasOrdinalCategory;
+                      const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+
+                      const hasValidUnaryCategory = categories.some(cat => {
+                        if (cat.type !== CategoryType.ORDINAL) return false;
+                        const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                        const hasOdd = numericValues.some(v => v % 2 !== 0);
+                        const hasEven = numericValues.some(v => v % 2 === 0);
+                        return hasOdd && hasEven;
+                      });
+
+                      const isUnaryUnsupported = opt.type === ClueType.UNARY && !hasValidUnaryCategory && ordinalCount > 0;
+                      const isCrossOrdinalUnsupported = opt.type === ClueType.CROSS_ORDINAL && ordinalCount < 2 && ordinalCount > 0;
+                      const isDisabled = (isOrdinalDependent && ordinalCount === 0) || isUnaryUnsupported || isCrossOrdinalUnsupported;
+                      const isChecked = allowedClueTypes.includes(opt.type) && !isDisabled;
+
                       return (
                         <label key={opt.type} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: isDisabled ? 'not-allowed' : 'pointer', color: isDisabled ? '#666' : '#ccc', opacity: isDisabled ? 0.5 : 1 }}>
                           <input
                             type="checkbox"
-                            checked={allowedClueTypes.includes(opt.type)}
+                            checked={isChecked}
                             disabled={isDisabled}
                             onChange={(e) => {
                               let newAllowed = e.target.checked ? [...allowedClueTypes, opt.type] : allowedClueTypes.filter(t => t !== opt.type);
@@ -1122,22 +1273,13 @@ function App() {
                               setAllowedClueTypes(newAllowed);
                             }}
                           />
-                          {opt.label} {isDisabled && <span style={{ fontSize: '0.8em' }}>(Requires Ordinal Category)</span>}
-                          {opt.type === ClueType.UNARY && !isDisabled && (() => {
-                            const hasValidUnaryCategory = categories.some(cat => {
-                              if (cat.type !== CategoryType.ORDINAL) return false;
-                              const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
-                              const hasOdd = numericValues.some(v => v % 2 !== 0);
-                              const hasEven = numericValues.some(v => v % 2 === 0);
-                              return hasOdd && hasEven;
-                            });
-                            if (!hasValidUnaryCategory && allowedClueTypes.includes(ClueType.UNARY)) {
-                              return <span style={{ fontSize: '0.8em', color: '#ef4444', marginLeft: '4px' }} title="Unary clues (Even/Odd) require at least one Ordinal category to contain both odd and even values.">⚠️ Need mix of odd/even values</span>;
-                            }
-                            return null;
-                          })()}
+                          {opt.label}
+                          {isOrdinalDependent && ordinalCount === 0 && <span style={{ fontSize: '0.8em' }}>(Requires Ordinal Category)</span>}
+                          {isUnaryUnsupported && <span style={{ fontSize: '0.8em', color: '#f97316', marginLeft: '4px' }} title="Unary clues (Even/Odd) require at least one Ordinal category to contain both odd and even values.">⚠️ Need mix of odd/even values</span>}
+                          {isCrossOrdinalUnsupported && <span style={{ fontSize: '0.8em', color: '#f97316', marginLeft: '4px' }} title="Cross-Ordinal clues require at least two separate Ordinal categories.">⚠️ Need 2+ Ordinal categories</span>}
                         </label>
                       );
+
                     })}
                   </div>
                 </div>
@@ -1153,57 +1295,62 @@ function App() {
               style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#111', color: '#fff', boxSizing: 'border-box' }}
             />
           </div>
-          <div style={{ float: 'right', display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {isGenerating && (
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-                style={{ padding: '10px 20px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-              >
-                Cancel
-              </button>
-            )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px', alignItems: 'center' }}>
             <button
-              onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
+              onClick={() => setActiveStep(2)}
               disabled={isGenerating}
               style={{
-                padding: '10px 20px',
-                backgroundColor: isInteractiveMode ? '#8ec07c' : (isGenerating ? '#666' : '#10b981'),
-                color: isInteractiveMode ? '#282828' : '#fff',
-                border: 'none',
+                padding: '12px 24px',
+                backgroundColor: 'transparent',
+                color: isGenerating ? '#444' : '#aaa',
+                border: `1px solid ${isGenerating ? '#222' : '#444'}`,
                 borderRadius: '6px',
-                cursor: isGenerating ? 'wait' : 'pointer',
                 fontWeight: 'bold',
-                transition: 'background-color 0.2s',
-                opacity: isGenerating ? 0.7 : 1
+                cursor: isGenerating ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
               }}
+              onMouseEnter={(e) => { if (!isGenerating) e.currentTarget.style.borderColor = '#666'; }}
+              onMouseLeave={(e) => { if (!isGenerating) e.currentTarget.style.borderColor = '#444'; }}
             >
-              {isGenerating ? `Working... (${timeLeft}s)` : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
+              &larr; Back
             </button>
-          </div>
-          <div style={{ clear: 'both' }}></div>
-
-          {(isGenerating || generationLogs.length > 0) && !isInteractiveMode && (
-            <div style={{
-              marginTop: '15px',
-              padding: '10px',
-              backgroundColor: '#111',
-              color: '#00ff00',
-              fontFamily: 'monospace',
-              fontSize: '0.85em',
-              borderRadius: '6px',
-              border: '1px solid #333',
-              maxHeight: '120px',
-              overflowY: 'auto',
-              whiteSpace: 'pre-wrap'
-            }}>
-              {generationLogs.length === 0 ? (
-                <span style={{ color: '#666' }}>Waiting for logs...</span>
-              ) : (
-                generationLogs.map((log, idx) => (
-                  <div key={idx} style={{ lineHeight: '1.4' }}>{log}</div>
-                ))
+            <div style={{ display: 'flex', gap: '12px' }}>
+              {isGenerating && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCancel(); }}
+                  style={{ padding: '12px 24px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#ef4444'}
+                >
+                  Cancel
+                </button>
               )}
-              {isGenerating && <div style={{ animation: 'blink 1s infinite', color: '#00ff00' }}>_</div>}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleGenerate(); }}
+                disabled={isGenerating}
+                style={{
+                  padding: '12px 26px',
+                  backgroundColor: isGenerating ? '#1f4c3a' : '#10b981',
+                  color: isGenerating ? '#444' : '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: isGenerating ? 'wait' : 'pointer',
+                  fontWeight: 'bold',
+                  transition: 'all 0.2s',
+                  boxShadow: isGenerating ? 'none' : '0 4px 12px rgba(16, 185, 129, 0.2)'
+                }}
+                onMouseEnter={(e) => { if (!isGenerating) e.currentTarget.style.backgroundColor = '#059669'; }}
+                onMouseLeave={(e) => { if (!isGenerating) e.currentTarget.style.backgroundColor = '#10b981'; }}
+              >
+                {isGenerating ? `Working... (${timeLeft}s)` : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
+              </button>
+            </div>
+          </div>
+
+          {isGenerating && (
+            <div style={{ marginTop: '10px', color: '#8ec07c', fontSize: '0.9em', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ width: '12px', height: '12px', border: '2px solid #8ec07c', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              Generating puzzle...
             </div>
           )}
         </div>
@@ -1250,16 +1397,16 @@ function App() {
 
     return (
       <div
-        key="step3"
+        key="step4"
         className="step-solution" // Added for print
-        ref={(el) => { if (el) stepRefs.current[3] = el; }}
+        ref={(el) => { if (el) stepRefs.current[4] = el; }}
         style={{
           backgroundColor: '#2a2a35',
           borderRadius: '12px',
           marginBottom: '100px',
           scrollMarginTop: '20px',
           animation: 'fadeIn 0.5s',
-          border: activeStep === 3 ? '1px solid #10b981' : '1px solid transparent'
+          border: activeStep === 4 ? '1px solid #10b981' : '1px solid transparent'
         }}
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1267,7 +1414,7 @@ function App() {
             {puzzleTitle && (
               <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
             )}
-            <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '4. Clues Generated!'}</h3>
+            <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '5. Clues Generated!'}</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em' }}>
               {useSpecificGoal && puzzle?.targetFact ? (
                 <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
@@ -1276,29 +1423,72 @@ function App() {
               )}
             </div>
           </div>
-          <div className="print-hide">
-            {!isInteractiveMode && (
+          <div className="print-hide" style={{ display: 'flex', gap: '10px' }}>
+            {(!isInteractiveMode || interactiveSolved) && (
               <>
                 <button
-                  onClick={() => window.print()} style={{ background: 'none', border: '1px solid #10b981', color: '#10b981', cursor: 'pointer', fontWeight: 'bold', padding: '5px 10px', borderRadius: '4px', marginRight: '10px' }}>
+                  onClick={() => window.print()}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #10b981',
+                    color: '#10b981',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                >
                   Print / Save PDF
                 </button>
-                <button onClick={() => setSelectedStep(-1)} style={{ background: 'none', border: 'none', color: (selectedStep === -1 || (puzzle && selectedStep === puzzle.proofChain.length - 1)) ? '#10b981' : '#666', cursor: 'pointer', fontWeight: 'bold' }}>
+                <button
+                  onClick={() => setSelectedStep(-1)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #444',
+                    color: (selectedStep === -1 || (puzzle && selectedStep === puzzle.proofChain.length - 1)) ? '#10b981' : '#888',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#666'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#444'; }}
+                >
                   Show Full Solution
                 </button>
               </>
             )}
             {isInteractiveMode && (
-              <button className="secondary-button" onClick={() => {
-                setActiveStep(2);
-                setSession(null);
-                setPuzzle(null); // Clean up the puzzle visualization
-                setInteractiveSolved(false);
-              }} style={{ background: 'transparent', border: '1px solid #666', color: '#ccc', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer' }}>
-                Cancel Session
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setActiveStep(3);
+                  setSession(null);
+                  setPuzzle(null); // Clean up the puzzle visualization
+                  setInteractiveSolved(false);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #444',
+                  color: '#ccc',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#666'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#444'; }}
+              >
+                {interactiveSolved ? 'Finish Session' : 'Cancel Session'}
               </button>
             )}
           </div>
+
         </div>
 
         {isInteractiveMode && session && (
@@ -1491,10 +1681,17 @@ function App() {
                   }}>
                     {i + 1}.
                   </span>
-                  {desc}
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ fontSize: '1.1em', color: '#fff' }}>
+                      {renderPlainLanguageClue(step.clue, categories)}
+                    </div>
+                    <div style={{ fontSize: '0.8em', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
+                      {desc}
+                    </div>
+                  </div>
                 </div>
               </div>
-            )
+            );
           })}
         </div>
         <div style={{ padding: '20px', textAlign: 'center' }}>
@@ -1520,14 +1717,17 @@ function App() {
 
   const renderSteps = () => {
     const items = [];
-    // Solution (Step 3) - Only if activeStep is 3
-    if (activeStep >= 3) items.push(renderSolutionStep());
+    // Solution (Step 4)
+    if (activeStep >= 4) items.push(renderSolutionStep());
 
-    // Generate (Step 2) - Only if activeStep >= 2
-    if (activeStep >= 2) items.push(renderGenerateStep());
+    // Generate (Step 3) 
+    if (activeStep >= 3) items.push(renderGenerateStep());
 
-    // Goal (Step 1) - Only if activeStep >= 1
-    if (activeStep >= 1) items.push(renderGoalStep());
+    // Goal (Step 2)
+    if (activeStep >= 2) items.push(renderGoalStep());
+
+    // Story (Step 1)
+    if (activeStep >= 1) items.push(renderStoryStep());
 
     // Structure (Step 0) - Always visible
     items.push(renderStructureStep());

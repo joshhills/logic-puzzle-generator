@@ -9,8 +9,8 @@ import { describe, it, expect, vi } from 'vitest';
 
 describe('CategoryEditor Component', () => {
     const mockCategories = [
-        { id: 'Cat1', values: ['A', 'B'], type: CategoryType.NOMINAL },
-        { id: 'Cat2', values: ['1', '2'], type: CategoryType.ORDINAL },
+        { id: 'Cat1', values: ['A', 'B'], type: CategoryType.NOMINAL, labels: {} },
+        { id: 'Cat2', values: ['1', '2'], type: CategoryType.ORDINAL, labels: {} },
     ];
 
     const defaultProps = {
@@ -51,8 +51,8 @@ describe('CategoryEditor Component', () => {
     it('shows error for duplicate names', () => {
         // Create draft with duplicates
         const duplicateDraft = [
-            { id: 'Same', values: ['A'], type: 0 },
-            { id: 'Same', values: ['B'], type: 0 }
+            { id: 'Same', values: ['A'], type: 0, labels: {} },
+            { id: 'Same', values: ['B'], type: 0, labels: {} }
         ];
         render(<CategoryEditor {...defaultProps} draftCategories={duplicateDraft} />);
 
@@ -62,7 +62,7 @@ describe('CategoryEditor Component', () => {
 
     it('shows error for non-numeric ordinal', () => {
         const invalidDraft = [
-            { id: 'Time', values: ['Morning'], type: CategoryType.ORDINAL }
+            { id: 'Time', values: ['Morning'], type: CategoryType.ORDINAL, labels: {} }
         ];
         render(<CategoryEditor {...defaultProps} draftCategories={invalidDraft} />);
 
@@ -74,8 +74,8 @@ describe('CategoryEditor Component', () => {
         // Must pass different object to simulate dirty state logic inside component
         // Actually component does check: JSON.stringify(original) !== JSON.stringify(draft)
         const dirtyDraft = [
-            { id: 'Cat1Changed', values: ['A', 'B'], type: CategoryType.NOMINAL },
-            { id: 'Cat2', values: ['1', '2'], type: CategoryType.ORDINAL },
+            { id: 'Cat1Changed', values: ['A', 'B'], type: CategoryType.NOMINAL, labels: {} },
+            { id: 'Cat2', values: ['1', '2'], type: CategoryType.ORDINAL, labels: {} },
         ];
 
         render(<CategoryEditor {...defaultProps} draftCategories={dirtyDraft} />);
