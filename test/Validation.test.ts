@@ -1,7 +1,7 @@
 import { Generator } from '../src/engine/Generator';
 import { LogicGrid } from '../src/engine/LogicGrid';
 import { ConfigurationError } from '../src/errors';
-import { CategoryType, CategoryConfig } from '../src/types';
+import { CategoryType, CategoryConfig, ClueType } from '../src/types';
 
 describe('Validation & Robustness', () => {
 
@@ -52,11 +52,23 @@ describe('Validation & Robustness', () => {
                 { id: 'C2', type: CategoryType.ORDINAL, values: ['1', 'two'] } // 'two' is not a number
             ];
             const gen = new Generator(123);
-            // Note: Target just needs to point to valid IDs, values don't matter as much as the Category check happens first or during generation
-            // But internalGenerate checks values first.
-            // Let's use valid target IDs.
             expect(() => gen.generatePuzzle(invalidOrdinal, { category1Id: 'C1', value1: 'A', category2Id: 'C2' }))
                 .toThrow(ConfigurationError);
         });
+
+        it('should throw ConfigurationError if Unary clues are enabled but no ordinal category has both odd and even values', () => {
+            const allEvenOrdinal = [
+                { id: 'C1', type: CategoryType.NOMINAL, values: ['A', 'B'] },
+                { id: 'C2', type: CategoryType.ORDINAL, values: [2, 4] } // Both even
+            ];
+            const gen = new Generator(123);
+            const constraints = { allowedClueTypes: [ClueType.UNARY, ClueType.BINARY] };
+
+            expect(() => gen.generatePuzzle(allEvenOrdinal, undefined, { constraints }))
+                .toThrow(/Unary clues.*require/);
+        });
+
+
+
     });
 });

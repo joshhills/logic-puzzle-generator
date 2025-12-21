@@ -13,7 +13,7 @@ class TestableGenerator extends Generator {
     }
 
     public publicWrapperCalculateScore(grid: LogicGrid, target: TargetFact, deductions: number, clue: Clue, prevClues: Clue[]): number {
-        return this.publicCalculateScore(grid, target, deductions, clue, prevClues, (this as any).solution, (this as any).reverseSolution);
+        return this.calculateClueScore(grid, target, deductions, clue, prevClues, (this as any).solution, (this as any).reverseSolution);
     }
 
     public getSolutionMap() {

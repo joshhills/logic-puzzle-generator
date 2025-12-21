@@ -1,5 +1,5 @@
 
-import { BoundsCalculator } from '../src/engine/BoundsCalculator';
+import { BoundsCalculator } from '../engine/BoundsCalculator';
 
 describe('Bounds Generation', () => {
     // We increase timeout significantly for simulation

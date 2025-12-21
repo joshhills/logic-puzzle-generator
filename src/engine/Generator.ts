@@ -248,7 +248,20 @@ export class Generator {
 
         // Validate Constraints vs Categories
         if (constraints?.allowedClueTypes) {
-            const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+            // Guard: Prevent "Ambiguous" constraint sets (Weak types only).
+            // Strong types provide specific identity or relative position (Comparison) needed to solve N > 2.
+            // Weak types (Unary, Superlative) only provide buckets or boundaries.
+            const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+            const hasStrongType = constraints.allowedClueTypes.some(t => strongTypes.includes(t));
+
+            if (constraints.allowedClueTypes.length > 0 && !hasStrongType) {
+                throw new ConfigurationError("Invalid Constraints: The selected clue types are ambiguous on their own. Please allow at least one identity-resolving type (Binary, Ordinal, or Cross-Ordinal).");
+            }
+
+            const ordinalCategories = categories.filter(c => c.type === CategoryType.ORDINAL);
+            const ordinalCount = ordinalCategories.length;
+            const hasOrdinalCategory = ordinalCount > 0;
+
             const ordinalDependentTypes = [
                 ClueType.ORDINAL,
                 ClueType.SUPERLATIVE,
@@ -257,26 +270,38 @@ export class Generator {
             ];
 
             const requestedOrdinal = constraints.allowedClueTypes.some(t => ordinalDependentTypes.includes(t));
-            const requestedOnlyOrdinal = constraints.allowedClueTypes.every(t => ordinalDependentTypes.includes(t));
 
             if (requestedOrdinal && !hasOrdinalCategory) {
-                // Optimization: If the user requested ONLY ordinal types, we MUST throw because we can't generate anything.
-                // If they requested Binary + Ordinal, we could just ignore Ordinal, but for explicit configuration, throwing is safer/clearer.
-                // The user said "limit itself to ordinal clues when there are no ordinal categories", which implies strict filtering.
-                // Let's assume if ANY ordinal constraint is enabled but no ordinal category exists, it's a configuration warning/error?
-                // But wait, allowedClueTypes is a whitelist.
-                // If allow=[BINARY, ORDINAL] and no Ordinal categories, we just generate Binary. That is fine.
-                // BUT if allow=[ORDINAL] and no Ordinal categories, we generate NOTHING -> Error.
-
-                // If the allowed types intersection with POSSIBLE types is empty, that's the error.
-                // Possible types with NO ordinal categories = [BINARY].
-                // If allowedClueTypes does NOT include BINARY, then we have 0 possibilities.
-
-                if (!hasOrdinalCategory && !constraints.allowedClueTypes.includes(ClueType.BINARY)) {
+                if (!constraints.allowedClueTypes.includes(ClueType.BINARY)) {
                     throw new ConfigurationError('Invalid Constraints: Ordinal-based clue types were requested, but no Ordinal categories exist. Please add an ordinal category or allow Binary clues.');
                 }
             }
+
+            // Cross-Ordinal Validation: Requires at least 2 ordinal categories
+            if (constraints.allowedClueTypes.includes(ClueType.CROSS_ORDINAL) && ordinalCount < 2) {
+                throw new ConfigurationError("Invalid Constraints: Cross-Ordinal clues require at least two separate Ordinal categories.");
+            }
+
+            // Unary Clue Validation: Even/Odd requires at least one ordinal category where values have at least one odd and at least one even
+            if (constraints.allowedClueTypes.includes(ClueType.UNARY)) {
+                const hasValidUnaryCategory = ordinalCategories.some(cat => {
+                    const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                    const hasOdd = numericValues.some(v => v % 2 !== 0);
+                    const hasEven = numericValues.some(v => v % 2 === 0);
+                    return hasOdd && hasEven;
+                });
+
+                if (!hasValidUnaryCategory) {
+                    throw new ConfigurationError("Invalid Constraints: Unary clues (Even/Odd) require at least one Ordinal category to contain both odd and even values.");
+                }
+            }
         }
+
+
+
+
+
+
 
         // Validate Ordinal Categories
         for (const cat of categories) {
@@ -425,7 +450,7 @@ export class Generator {
                     score = (100 / deductions);
                 } else {
                     // Standard balanced scoring
-                    score = this.publicCalculateScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue), this.solution, this.reverseSolution);
+                    score = this.calculateClueScore(tempGrid, target, deductions, clue, proofChain.map(p => p.clue), this.solution, this.reverseSolution);
                 }
 
                 // Check for immediate solution vs normal step
@@ -500,15 +525,19 @@ export class Generator {
 
         // Define recursive search within this attempt context
 
-        const search = (currentGrid: LogicGrid, currentChain: ProofStep[], currentAvailable: Clue[]): ProofStep[] | null => {
-            if (Date.now() - startTime > timeoutMs) return null;
+        const search = (currentGrid: LogicGrid, currentChain: ProofStep[], currentAvailable: Clue[], overrideStrategy?: 'SPEED' | 'STALL'): ProofStep[] | null => {
+            // Panic based on TIME, not backtrack count.
+            // This ensures we use the full available timeout (e.g. 270s) before giving up.
+            const elapsed = Date.now() - startTime;
+            const timeRatio = elapsed / timeoutMs; // 0.0 to 1.0
 
-            // Panic faster: Increase bias by 5% per backtrack instead of 0.5%
-            const aggressionBias = 1.0 + (backtrackCount * 0.05);
+            // detailed pacing control.
+            // Bias ramps slightly to encourage backtracking if we are stuck.
+            const aggressionBias = 1.0 + (timeRatio * 3.0);
 
             // Trace Status
             if (onTrace && currentChain.length % 1 === 0) {
-                const depth = currentChain.length;
+                const depth = currentChain.length + 1;
                 const stats = currentGrid.getGridStats();
                 const solvedP = Math.round(((stats.totalPossible - stats.currentPossible) / (stats.totalPossible - stats.solutionPossible)) * 100);
 
@@ -529,31 +558,18 @@ export class Generator {
             }
 
             if (currentChain.length >= targetCount) {
-                return null; // Overshot
+                return null; // Overshot target without solving. Trigger backtracking to previous depth.
             }
 
             // Heuristic Sorting
-            // If we are "behind schedule" (need many clues), prefer WEAK clues.
-            // If we are "ahead of schedule" (need few clues), prefer STRONG clues.
             const stats = currentGrid.getGridStats();
             const progress = (stats.totalPossible - stats.currentPossible) / (stats.totalPossible - stats.solutionPossible);
             const stepsTaken = currentChain.length + 1; // considering next step
-            const idealProgressPerStep = 1.0 / targetCount;
-            const currentExpectedProgress = stepsTaken * idealProgressPerStep;
-
-            // If progress > expected, we are moving too fast -> Slow down (pick weak clues)
-            // If progress < expected, we are moving too slow -> Speed up (pick strong clues)
-            // Actually, wait.
-            // If we need 10 steps and we are at step 2 with 50% solved, we need to SLOW DOWN.
-            // If we need 10 steps and we are at step 8 with 10% solved, we need to SPEED UP.
-
-            // Bias the expected progress. 
-            // E.g. Bias 1.2 => We expect 20% more progress than linear.
-            // If actual progress is lagging behind this boosted expectation, we panic and speed up.
-            const needsToSpeedUp = progress < ((stepsTaken / targetCount) * aggressionBias);
+            // const idealProgressPerStep = 1.0 / targetCount;
+            // const currentExpectedProgress = stepsTaken * idealProgressPerStep;
 
             // Filter and Sort Candidates
-            let candidates: { clue: Clue, deductions: number, score: number, grid: LogicGrid, index: number }[] = [];
+            let candidates: { clue: Clue, deductions: number, score: number, grid: LogicGrid, index: number, currentScore?: number }[] = [];
 
             // Shuffle for variety
             if (maxCandidates < currentAvailable.length) {
@@ -564,16 +580,12 @@ export class Generator {
             }
 
             // DYNAMIC PRUNING
-            // As aggression increases (panic mode), we reduce the search width.
-            // This forces the algorithm to give up on "ok" candidates and backtrack deeper
-            // if the "best" candidates don't work immediately.
-            // This prevents thrashing at the bottom of the tree (trying 50 mediocre candidates at Depth 34).
-            // At Bias 1.0: Check all maxCandidates (e.g. 50).
+            // ...
+            // Use quadratic power instead of cubic for gentler falloff
             // At Bias 1.26 (50 backtracks): Check 50 / 2 = 25.
             // At Bias 1.58 (100 backtracks): Check 50 / 4 = 12.
-            const baseMax = (maxCandidates === Infinity) ? 50 : maxCandidates;
-            // Use cubic power to aggressively drop limit as bias increases
-            const dynamicLimit = Math.max(1, Math.floor(baseMax / Math.pow(aggressionBias, 3)));
+            const baseMax = overrideStrategy ? 3 : ((maxCandidates === Infinity) ? 50 : maxCandidates);
+            const dynamicLimit = Math.max(1, Math.floor(baseMax / Math.pow(aggressionBias, 2)));
             const limit = Math.min(currentAvailable.length, dynamicLimit);
 
             // Debug pruning
@@ -598,49 +610,148 @@ export class Generator {
                 if (solvedNow && (stepsTaken < targetCount)) continue;
 
                 // Calculate Base Quality Score (Variety, Repetition, etc.)
-                const qualityScore = this.publicCalculateScore(tempGrid, target, deductions, clue, currentChain.map(p => p.clue), this.solution, this.reverseSolution);
+                let score = this.calculateClueScore(tempGrid, target, deductions, clue, currentChain.map(p => p.clue), this.solution, this.reverseSolution);
 
-                let heuristicScore = 0;
-                if (needsToSpeedUp) {
-                    heuristicScore = deductions * 10; // Favor high deductions
-                } else {
-                    heuristicScore = (1 / deductions) * 10; // Favor low deductions
+                // TARGET CLUE COUNT HEURISTIC
+                if (targetCount) {
+                    const percentThroughTarget = stepsTaken / targetCount;
+                    const percentSolved = (stats.totalPossible - tempGrid.getGridStats().currentPossible) / (stats.totalPossible - stats.solutionPossible);
+
+                    const expectedSolved = Math.pow(percentThroughTarget, 1.8);
+                    const diff = percentSolved - expectedSolved;
+
+                    // If diff is POSITIVE, we are AHEAD (Too Fast).
+                    // We need to stall -> Penalize deductions.
+
+                    // If diff is NEGATIVE, we are BEHIND (Too Slow).
+                    // We need to catch up -> Reward deductions.
+
+                    // Weight: 50 * Diff * Deductions.
+                    // If Diff is +0.2 (20% ahead), we subtract 10 * Deductions.
+                    // If Diff is -0.2 (20% behind), we add 10 * Deductions.
+                    score -= (diff * deductions * 50);
                 }
-
-                // Combine: Heuristic (Hitting the target count) + Quality (Good puzzle design)
-                // We weight Heuristic higher because hitting the target count is the hard constraint,
-                // but Quality handles the tie-breaking.
-
-                // CRITICAL FIX: If we are near the end, forcing the solution is paramount.
-                const isFinalStretch = stepsTaken >= (targetCount - 2);
-                const isVeryFinal = stepsTaken === targetCount;
-
-                if (isFinalStretch) {
-                    // Exponentially increase weight of deduction score
-                    heuristicScore *= 10;
-                    if (isVeryFinal) heuristicScore *= 10; // MUST SOLVE
-                }
-
-                let score = heuristicScore + qualityScore;
-
-                // If this is the last step and it solves the puzzle, give it infinite priority
-                if (isVeryFinal && this.isPuzzleSolved(tempGrid, this.solution, this.reverseSolution)) {
-                    score += 1000000;
-                }
-
-                // Add randomness to score to prevent determinism
-                score += this.random();
 
                 candidates.push({ clue, deductions, score, grid: tempGrid, index: i });
             }
 
-            candidates.sort((a, b) => b.score - a.score); // Descending score
+            // candidates.sort((a, b) => b.score - a.score); // MOVED INSIDE LOOP
 
-            for (const cand of candidates) {
+
+            // ---------------------------------------------------------
+            // HYBRID PRIORITY SORTING (ITERATIVE CORRECTION)
+            // ---------------------------------------------------------
+            // Strategy: "Try Normal -> If Fail -> Try Correction -> If Fail -> Try Rest"
+            // This ensures we attempt to fix the pacing (Speed/Stall) immediately upon backtracking.
+
+            let orderedCandidates: typeof candidates = [];
+            let primaryCandidate: typeof candidates[0] | undefined;
+            let correctionCandidate: typeof candidates[0] | undefined;
+
+            if (overrideStrategy) {
+                const isStall = overrideStrategy === 'STALL';
+                // Sort by weak/strong immediately
+                orderedCandidates = candidates.sort((a, b) => {
+                    const diff = a.deductions - b.deductions;
+                    return isStall ? diff : -diff; // Weakest first vs Strongest first
+                });
+            } else {
+                // 1. Primary Heuristic (Balance)
+                candidates.sort((a, b) => b.score - a.score);
+                primaryCandidate = candidates[0];
+            }
+
+            if (!overrideStrategy) {
+                // 2. Correction Heuristic (Extreme Logic)
+                correctionCandidate = candidates[0];
+
+                if (targetCount) {
+                    const expectedProgress = Math.pow(stepsTaken / targetCount, 1.8);
+                    if (progress > expectedProgress) {
+                        // STALL: Prefer Min Deductions
+                        const sortedByWeakness = [...candidates].sort((a, b) => {
+                            if (a.deductions !== b.deductions) return a.deductions - b.deductions;
+                            return b.score - a.score;
+                        });
+                        correctionCandidate = sortedByWeakness[0];
+                    } else {
+                        // SPEED: Prefer Max Deductions
+                        const sortedByStrength = [...candidates].sort((a, b) => {
+                            if (a.deductions !== b.deductions) return b.deductions - a.deductions;
+                            return b.score - a.score;
+                        });
+                        correctionCandidate = sortedByStrength[0];
+                    }
+                }
+
+                // 3. Construct Final List
+                // (orderedCandidates var is from outer scope)
+                if (primaryCandidate) orderedCandidates.push(primaryCandidate);
+                if (correctionCandidate && correctionCandidate !== primaryCandidate) {
+                    orderedCandidates.push(correctionCandidate);
+                }
+
+                for (const c of candidates) {
+                    if (c !== primaryCandidate && c !== correctionCandidate) {
+                        orderedCandidates.push(c);
+                    }
+                }
+            }
+
+            // 4. Iterate (With Timeout guard)
+            for (const cand of orderedCandidates) {
+                // Update Time Bias
+                const freshBias = 1.0 + ((Date.now() - startTime) / timeoutMs * 4.0);
+
+                // Smart Backtracking Check: 
+                // If we are deep (Depth > 4) and under pressure (Bias > 1.1),
+                // we only permit the Primary and Correction candidates. 
+                // We prune the "Rest".
+                if (targetCount && currentChain.length > 4) {
+                    if (freshBias > 1.1) {
+                        const isElite = (!!overrideStrategy || cand === primaryCandidate || cand === correctionCandidate);
+                        if (!isElite) break;
+                    }
+                }
+
                 const nextAvailable = [...currentAvailable];
-                nextAvailable.splice(cand.index, 1); // Remove used clue
+                nextAvailable.splice(cand.index, 1);
 
-                const result = search(cand.grid, [...currentChain, { clue: cand.clue, deductions: cand.deductions }], nextAvailable);
+                // TRACE LOGGING: Explain Decision
+                const isPrimary = (cand === primaryCandidate);
+                const isCorrection = (cand === correctionCandidate && cand !== primaryCandidate);
+
+                // Determine Next Strategy (Stickiness)
+                let nextStrategy: 'SPEED' | 'STALL' | undefined = overrideStrategy;
+                let actionStr = "";
+
+                if (!overrideStrategy && isCorrection && targetCount) {
+                    // We are initiating a Correction Strategy. It becomes Sticky.
+                    const ahead = progress > (stepsTaken / targetCount);
+                    const debugVal = `(Prog ${progress.toFixed(2)} vs Exp ${(stepsTaken / targetCount).toFixed(2)})`;
+                    // Set the strategy for the child
+                    nextStrategy = ahead ? 'STALL' : 'SPEED';
+                    actionStr = ahead ? `(Stalling - Weakest) ${debugVal}` : `(Speeding - Strongest) ${debugVal}`;
+                } else if (overrideStrategy) {
+                    actionStr = `(Continued ${overrideStrategy})`;
+                }
+
+                if (onTrace && (isCorrection || overrideStrategy || Math.random() < 0.05)) {
+                    const typeStr = overrideStrategy ? `STICKY ${overrideStrategy}` : (isPrimary ? "Primary" : (isCorrection ? "CORRECTION" : "Rest"));
+
+                    if (isCorrection) {
+                        onTrace(`[BACKTRACK] Depth ${currentChain.length}: Primary Strategy Failed. Switching to ${actionStr}. Ded: ${cand.deductions}`);
+                    } else if (overrideStrategy) {
+                        // Only log occasionally for sticky steps to avoid spam, or finding a solution
+                        if (Math.random() < 0.1) {
+                            onTrace(`Depth ${currentChain.length}: ${Math.round(progress * 100)}% Solved. Strategy: ${typeStr}. Ded: ${cand.deductions}`);
+                        }
+                    } else {
+                        onTrace(`Depth ${currentChain.length}: ${Math.round(progress * 100)}% Solved. Trying ${typeStr} Cand. Ded: ${cand.deductions}`);
+                    }
+                }
+
+                const result = search(cand.grid, [...currentChain, { clue: cand.clue, deductions: cand.deductions }], nextAvailable, nextStrategy);
                 if (result) return result;
             }
 
@@ -650,17 +761,21 @@ export class Generator {
 
         const result = search(logicGrid, [], [...availableClues]);
         if (result) {
-            return {
+            let puzzle = {
                 solution: this.solution,
                 clues: result.map(p => p.clue),
                 proofChain: result,
                 categories,
                 targetFact: target,
             };
+
+            return puzzle;
         }
 
         throw new ConfigurationError(`Could not generate puzzle with exactly ${targetCount} clues within timeout.`);
     }
+
+
 
 
 
@@ -932,7 +1047,11 @@ export class Generator {
         return clues;
     }
 
-    public publicCalculateScore(
+    /**
+     * Calculates the heuristic score for a candidate clue.
+     * Higher scores represent better clues according to the current strategy.
+     */
+    public calculateClueScore(
         grid: LogicGrid,
         target: TargetFact,
         deductions: number,

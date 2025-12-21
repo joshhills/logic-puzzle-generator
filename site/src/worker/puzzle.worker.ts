@@ -20,6 +20,11 @@ ctx.onmessage = (e: MessageEvent<WorkerMessage>) => {
     if (type === 'start') {
         const { categories, targetFact, options } = e.data as any;
 
+        // Ensure numeric
+        if (options && options.targetClueCount) {
+            options.targetClueCount = parseInt(String(options.targetClueCount), 10);
+        }
+
         try {
             const gen = new Generator(options?.seed);
 
@@ -44,6 +49,7 @@ ctx.onmessage = (e: MessageEvent<WorkerMessage>) => {
                     // Remove target constraint and try again
                     const fallbackOptions = { ...genOptions, targetClueCount: undefined };
                     puzzle = gen.generatePuzzle(categories, targetFact, fallbackOptions);
+
                 } else {
                     throw strictErr; // Re-throw if it wasn't a recoverable target error
                 }

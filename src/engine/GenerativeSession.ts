@@ -64,7 +64,7 @@ export class GenerativeSession {
             checked++;
             if (checked > searchLimit && bestClue) break; // found something good enough?
 
-            const score = this.generator.publicCalculateScore(
+            const score = this.generator.calculateClueScore(
                 this.grid, this.targetFact, 0, clue, this.proofChain,
                 this.solution, this.reverseSolution
                 // Note: we need to actually apply it to get deductions count for scoring to work well
@@ -81,7 +81,7 @@ export class GenerativeSession {
             }
 
             // Re-calc score with deductions
-            const realScore = this.generator.publicCalculateScore(this.grid, this.targetFact, deductions, clue, this.proofChain, this.solution, this.reverseSolution);
+            const realScore = this.generator.calculateClueScore(this.grid, this.targetFact, deductions, clue, this.proofChain, this.solution, this.reverseSolution);
 
             if (realScore > bestScore) {
                 bestScore = realScore;

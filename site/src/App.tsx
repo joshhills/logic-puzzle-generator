@@ -10,8 +10,8 @@ import { AppCategoryConfig } from './types';
 import { getRecommendedBounds } from '../../src/engine/DifficultyBounds';
 import PuzzleWorker from './worker/puzzle.worker?worker';
 
-// Steps: 0=Structure, 1=Goal, 2=Solution
-const STEPS = ['Structure', 'Goal', 'Solution'];
+// Steps: 0=Structure, 1=Goal, 2=Generate, 3=Solution
+const STEPS = ['Structure', 'Goal', 'Generate', 'Solution'];
 
 // Helper to generate defaults
 const generateDefaultCategories = (nCats: number, nItems: number): CategoryConfig[] => {
@@ -141,7 +141,17 @@ function App() {
 
   // UI State
   const [isGenerating, setIsGenerating] = useState(false);
-
+  const [timeLeft, setTimeLeft] = useState(0);
+  // Countdown Timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isGenerating && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => Math.max(0, prev - 1));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isGenerating, timeLeft]);
   // --- Effects ---
 
   // Persistence: Hydrate on Mount
@@ -565,6 +575,7 @@ function App() {
     if (isGenerating) return;
 
     setIsGenerating(true);
+    setTimeLeft(180); // 3 minutes (Sync with timeoutMs)
     setGenerationLogs([]); // Clear logs
 
     // String Hashing for Seed
@@ -621,8 +632,8 @@ function App() {
         } as any);
 
         setSelectedStep(-2);
-        setActiveStep(2);
-        setMaxReachedStep(2);
+        setActiveStep(3);
+        setMaxReachedStep(3);
       } catch (e: any) {
         console.error(e);
         showAlert("Interactive Mode Error", e.message);
@@ -654,8 +665,8 @@ function App() {
           }
 
           setSelectedStep(-2);
-          setActiveStep(2);
-          setMaxReachedStep(2);
+          setActiveStep(3);
+          setMaxReachedStep(3);
           setIsGenerating(false);
           workerRef.current?.terminate();
           workerRef.current = null;
@@ -682,7 +693,7 @@ function App() {
         targetFact,
         options: {
           targetClueCount: useTargetClueCount ? targetClueCount : undefined,
-          timeoutMs: 30000,
+          timeoutMs: 180000,
           constraints: { allowedClueTypes },
           // generator seed isn't passed yet! we generated 's' but Generator ctor takes it.
           // We need to pass seed to worker if Generator supports it.
@@ -700,7 +711,7 @@ function App() {
   };
   /* eslint-enable react-hooks/exhaustive-deps */
 
-  const maxStep = puzzle ? 2 : Math.min(maxReachedStep, 1);
+  const maxStep = puzzle ? 3 : Math.min(maxReachedStep, 2);
 
   const jumpToStep = (idx: number) => {
     if (idx > maxStep) return;
@@ -856,197 +867,27 @@ function App() {
   const renderGoalStep = () => (
     <div
       key="step1"
-      className="step-goal" // Added for print
+      className="step-goal"
       ref={(el) => { if (el) stepRefs.current[1] = el; }}
-      onClick={() => jumpToStep(1)}
+      onClick={() => activeStep > 1 && jumpToStep(1)}
       style={{
         backgroundColor: '#2a2a35',
         borderRadius: '12px',
         marginBottom: '20px',
         scrollMarginTop: '20px',
         opacity: activeStep < 1 ? 0.5 : 1,
-        cursor: activeStep > 1 || (activeStep === 0) ? 'pointer' : 'default',
+        cursor: activeStep > 1 ? 'pointer' : 'default',
         transition: 'all 0.3s',
         border: activeStep === 1 ? '1px solid #3b82f6' : '1px solid transparent'
       }}
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <h3 style={{ margin: 0, color: '#fff' }}>2. Goal</h3>
-        {activeStep !== 1 && activeStep > 1 && puzzle && <div style={{ color: '#aaa' }}>{useTargetClueCount ? `${targetClueCount} Clues` : 'Any Clues'}</div>}
+        {activeStep !== 1 && activeStep > 1 && <div style={{ color: '#aaa' }}>{useSpecificGoal ? 'Specific Goal' : 'Full Board'}</div>}
       </div>
 
       {activeStep === 1 && (
         <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
-          <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <div style={{ fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>Puzzle Objective</div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9em', color: '#aaa' }}>
-                <input
-                  type="checkbox"
-                  checked={useSpecificGoal}
-                  onChange={(e) => setUseSpecificGoal(e.target.checked)}
-                />
-                Define Specific Goal
-              </label>
-            </div>
-
-            {useSpecificGoal ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '1.1em' }}>
-                <span>For the group where</span>
-
-                <select
-                  value={targetCat1Idx}
-                  onChange={e => {
-                    const newVal = Number(e.target.value);
-                    setTargetCat1Idx(newVal);
-                    if (newVal === targetCat2Idx) {
-                      setTargetCat2Idx(targetCat1Idx);
-                    }
-                  }}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-                >
-                  {categories.map((c, i) => (
-                    <option key={i} value={i}>{c.id}</option>
-                  ))}
-                </select>
-
-                <span>is</span>
-
-                <select
-                  value={targetVal1Idx}
-                  onChange={e => setTargetVal1Idx(Number(e.target.value))}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-                >
-                  {categories[targetCat1Idx]?.values.map((v, i) => (
-                    <option key={i} value={i}>{v}</option>
-                  ))}
-                </select>
-
-                <span>, find the</span>
-
-                <select
-                  value={targetCat2Idx}
-                  onChange={e => {
-                    const newVal = Number(e.target.value);
-                    setTargetCat2Idx(newVal);
-                    if (newVal === targetCat1Idx) {
-                      setTargetCat1Idx(targetCat2Idx);
-                    }
-                  }}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
-                >
-                  {categories.map((c, i) => (
-                    <option key={i} value={i}>{c.id}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <div style={{ color: '#aaa', fontStyle: 'italic' }}>
-                Figure out the whole board.
-              </div>
-            )}
-          </div>
-
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.2em', fontWeight: 'bold', color: '#8ec07c' }}>
-              <input
-                type="checkbox"
-                checked={isInteractiveMode}
-                onChange={(e) => {
-                  setIsInteractiveMode(e.target.checked);
-                  // Clean up any existing state when switching modes
-                  setPuzzle(null);
-                  setSession(null);
-                  setInteractiveSolved(false);
-                  // if (activeStep === 2) setActiveStep(1); // Dead code: This UI is only visible in Step 1
-                }}
-                style={{ width: '20px', height: '20px' }}
-              />
-              Enable Interactive Mode
-            </label>
-            <div style={{ fontSize: '0.9em', color: '#888', marginLeft: '34px' }}>
-              Generate clues one by one instead of a full puzzle.
-            </div>
-          </div>
-
-
-
-          {!isInteractiveMode && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <input
-                    type="checkbox"
-                    checked={useTargetClueCount}
-                    onChange={(e) => setUseTargetClueCount(e.target.checked)}
-                  />
-                  Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
-                </label>
-              </div>
-
-              {useTargetClueCount && (
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <input
-                    type="range"
-                    min={getRecommendedBounds(numCats, numItems).min}
-                    max={getRecommendedBounds(numCats, numItems).max}
-                    value={targetClueCount}
-                    onChange={(e) => {
-                      setTargetClueCount(parseInt(e.target.value));
-                      // setUseTargetClueCount(true); // Redundant if already rendered
-                    }}
-                    style={{ flex: 1, marginRight: '10px' }}
-                  />
-                  <span style={{ fontWeight: 'bold', width: '30px', textAlign: 'center' }}>{targetClueCount}</span>
-                </div>
-              )}
-            </div>
-          )}
-
-
-          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
-            <label style={{ display: 'block', marginBottom: '10px', fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              Allowed Clue Types
-            </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
-              {[
-                { type: ClueType.BINARY, label: 'Binary (Is/Not)' },
-                { type: ClueType.ORDINAL, label: 'Ordinal (Before/After)' },
-                { type: ClueType.SUPERLATIVE, label: 'Superlative (First/Last)' },
-                { type: ClueType.UNARY, label: 'Unary (Values)' },
-                { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' }
-              ].map((opt) => {
-                const isOrdinalDependent = [
-                  ClueType.ORDINAL,
-                  ClueType.SUPERLATIVE,
-                  ClueType.UNARY,
-                  ClueType.CROSS_ORDINAL
-                ].includes(opt.type);
-
-                const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
-                const isDisabled = isOrdinalDependent && !hasOrdinalCategory;
-
-                return (
-                  <label key={opt.type} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: isDisabled ? 'not-allowed' : 'pointer', color: isDisabled ? '#666' : '#ccc', opacity: isDisabled ? 0.5 : 1 }}>
-                    <input
-                      type="checkbox"
-                      checked={allowedClueTypes.includes(opt.type)}
-                      disabled={isDisabled}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setAllowedClueTypes(prev => [...prev, opt.type]);
-                        } else {
-                          setAllowedClueTypes(prev => prev.filter(t => t !== opt.type));
-                        }
-                      }}
-                    />
-                    {opt.label} {isDisabled && <span style={{ fontSize: '0.8em' }}>(Requires Ordinal Category)</span>}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Puzzle Title (Optional)</label>
             <input
@@ -1091,6 +932,219 @@ function App() {
               </div>
             </div>
           </div>
+
+          <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>Puzzle Objective</div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9em', color: '#aaa' }}>
+                <input
+                  type="checkbox"
+                  checked={useSpecificGoal}
+                  onChange={(e) => setUseSpecificGoal(e.target.checked)}
+                />
+                Define Specific Goal
+              </label>
+            </div>
+
+            {useSpecificGoal ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '1.1em' }}>
+                <span>For the group where</span>
+                <select
+                  value={targetCat1Idx}
+                  onChange={e => {
+                    const newVal = Number(e.target.value);
+                    setTargetCat1Idx(newVal);
+                    if (newVal === targetCat2Idx) setTargetCat2Idx(targetCat1Idx);
+                  }}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories.map((c, i) => (
+                    <option key={i} value={i}>{c.id}</option>
+                  ))}
+                </select>
+                <span>is</span>
+                <select
+                  value={targetVal1Idx}
+                  onChange={e => setTargetVal1Idx(Number(e.target.value))}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories[targetCat1Idx]?.values.map((v, i) => (
+                    <option key={i} value={i}>{v}</option>
+                  ))}
+                </select>
+                <span>, find the</span>
+                <select
+                  value={targetCat2Idx}
+                  onChange={e => {
+                    const newVal = Number(e.target.value);
+                    setTargetCat2Idx(newVal);
+                    if (newVal === targetCat1Idx) setTargetCat1Idx(targetCat2Idx);
+                  }}
+                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                >
+                  {categories.map((c, i) => (
+                    <option key={i} value={i}>{c.id}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div style={{ color: '#aaa', fontStyle: 'italic' }}>Figure out the whole board.</div>
+            )}
+          </div>
+
+          <button
+            onClick={(e) => { e.stopPropagation(); setActiveStep(2); }}
+            style={{ padding: '10px 20px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', float: 'right' }}
+          >
+            Continue
+          </button>
+          <div style={{ clear: 'both' }}></div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderGenerateStep = () => (
+    <div
+      key="step2"
+      className="step-generate"
+      ref={(el) => { if (el) stepRefs.current[2] = el; }}
+      onClick={() => activeStep > 2 && jumpToStep(2)}
+      style={{
+        backgroundColor: '#2a2a35',
+        borderRadius: '12px',
+        marginBottom: '20px',
+        scrollMarginTop: '20px',
+        opacity: activeStep < 2 ? 0.5 : 1,
+        cursor: activeStep > 2 ? 'pointer' : 'default',
+        transition: 'all 0.3s',
+        border: activeStep === 2 ? '1px solid #8ec07c' : '1px solid transparent'
+      }}
+    >
+      <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h3 style={{ margin: 0, color: '#fff' }}>3. Generate</h3>
+        {activeStep !== 2 && activeStep > 2 && <div style={{ color: '#aaa' }}>{isInteractiveMode ? 'Interactive' : (useTargetClueCount ? `${targetClueCount} Clues` : 'Full Puzzle')}</div>}
+      </div>
+
+      {activeStep === 2 && (
+        <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '1.2em', fontWeight: 'bold', color: '#8ec07c' }}>
+              <input
+                type="checkbox"
+                checked={isInteractiveMode}
+                onChange={(e) => {
+                  setIsInteractiveMode(e.target.checked);
+                  setPuzzle(null);
+                  setSession(null);
+                  setInteractiveSolved(false);
+                }}
+                style={{ width: '20px', height: '20px' }}
+              />
+              Enable Interactive Mode
+            </label>
+            <div style={{ fontSize: '0.9em', color: '#888', marginLeft: '34px' }}>
+              Generate clues one by one instead of a full puzzle.
+            </div>
+          </div>
+
+          {!isInteractiveMode && (
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={useTargetClueCount}
+                    onChange={(e) => setUseTargetClueCount(e.target.checked)}
+                  />
+                  Target Clue Count ({getRecommendedBounds(numCats, numItems).min} - {getRecommendedBounds(numCats, numItems).max})
+                </label>
+              </div>
+              {useTargetClueCount && (
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="range"
+                    min={getRecommendedBounds(numCats, numItems).min}
+                    max={getRecommendedBounds(numCats, numItems).max}
+                    value={targetClueCount}
+                    onChange={(e) => setTargetClueCount(parseInt(e.target.value))}
+                    style={{ flex: 1, marginRight: '10px' }}
+                  />
+                  <span style={{ fontWeight: 'bold', width: '30px', textAlign: 'center' }}>{targetClueCount}</span>
+                </div>
+              )}
+              {useTargetClueCount && (
+                <div style={{ fontSize: '0.85em', color: '#eab308', marginTop: '5px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>⚠️</span>
+                  <span>Note: Exact clue targets may take longer to generate or timeout.</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#222', borderRadius: '8px' }}>
+            <label style={{ display: 'block', marginBottom: '10px', fontSize: '0.9em', color: '#888', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Allowed Clue Types
+            </label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
+              {[
+                { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
+              ].map((group) => (
+                <div key={group.title} style={{ marginRight: '20px', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '0.8em', color: '#666', marginBottom: '5px', fontWeight: 'bold' }}>{group.title}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {group.types.map(type => {
+                      const opt = [
+                        { type: ClueType.BINARY, label: 'Binary (Is/Not)' },
+                        { type: ClueType.ORDINAL, label: 'Ordinal (Before/After)' },
+                        { type: ClueType.SUPERLATIVE, label: 'Superlative (First/Last)' },
+                        { type: ClueType.UNARY, label: 'Unary (Values)' },
+                        { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' }
+                      ].find(o => o.type === type)!;
+                      const isOrdinalDependent = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL].includes(opt.type);
+                      const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+                      const isDisabled = isOrdinalDependent && !hasOrdinalCategory;
+                      return (
+                        <label key={opt.type} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: isDisabled ? 'not-allowed' : 'pointer', color: isDisabled ? '#666' : '#ccc', opacity: isDisabled ? 0.5 : 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={allowedClueTypes.includes(opt.type)}
+                            disabled={isDisabled}
+                            onChange={(e) => {
+                              let newAllowed = e.target.checked ? [...allowedClueTypes, opt.type] : allowedClueTypes.filter(t => t !== opt.type);
+                              const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+                              const hasStrong = newAllowed.some(t => strongTypes.includes(t));
+                              if (newAllowed.length > 0 && !hasStrong) {
+                                showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one identity-resolving clue type (Core Clues).");
+                                return;
+                              }
+                              setAllowedClueTypes(newAllowed);
+                            }}
+                          />
+                          {opt.label} {isDisabled && <span style={{ fontSize: '0.8em' }}>(Requires Ordinal Category)</span>}
+                          {opt.type === ClueType.UNARY && !isDisabled && (() => {
+                            const hasValidUnaryCategory = categories.some(cat => {
+                              if (cat.type !== CategoryType.ORDINAL) return false;
+                              const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                              const hasOdd = numericValues.some(v => v % 2 !== 0);
+                              const hasEven = numericValues.some(v => v % 2 === 0);
+                              return hasOdd && hasEven;
+                            });
+                            if (!hasValidUnaryCategory && allowedClueTypes.includes(ClueType.UNARY)) {
+                              return <span style={{ fontSize: '0.8em', color: '#ef4444', marginLeft: '4px' }} title="Unary clues (Even/Odd) require at least one Ordinal category to contain both odd and even values.">⚠️ Need mix of odd/even values</span>;
+                            }
+                            return null;
+                          })()}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Seed (Optional)</label>
             <input
@@ -1103,15 +1157,7 @@ function App() {
             {isGenerating && (
               <button
                 onClick={(e) => { e.stopPropagation(); handleCancel(); }}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#ef4444',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold'
-                }}
+                style={{ padding: '10px 20px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
               >
                 Cancel
               </button>
@@ -1131,12 +1177,11 @@ function App() {
                 opacity: isGenerating ? 0.7 : 1
               }}
             >
-              {isGenerating ? 'Working...' : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
+              {isGenerating ? `Working... (${timeLeft}s)` : (isInteractiveMode ? 'Start Session' : 'Generate Puzzle')}
             </button>
           </div>
           <div style={{ clear: 'both' }}></div>
 
-          {/* Trace Logs Console */}
           {(isGenerating || generationLogs.length > 0) && !isInteractiveMode && (
             <div style={{
               marginTop: '15px',
@@ -1161,11 +1206,9 @@ function App() {
               {isGenerating && <div style={{ animation: 'blink 1s infinite', color: '#00ff00' }}>_</div>}
             </div>
           )}
-          <div style={{ clear: 'both' }}></div>
         </div>
-      )
-      }
-    </div >
+      )}
+    </div>
   );
 
 
@@ -1207,16 +1250,16 @@ function App() {
 
     return (
       <div
-        key="step2"
+        key="step3"
         className="step-solution" // Added for print
-        ref={(el) => { if (el) stepRefs.current[2] = el; }}
+        ref={(el) => { if (el) stepRefs.current[3] = el; }}
         style={{
           backgroundColor: '#2a2a35',
           borderRadius: '12px',
           marginBottom: '100px',
           scrollMarginTop: '20px',
           animation: 'fadeIn 0.5s',
-          border: activeStep === 2 ? '1px solid #10b981' : '1px solid transparent'
+          border: activeStep === 3 ? '1px solid #10b981' : '1px solid transparent'
         }}
       >
         <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1224,7 +1267,7 @@ function App() {
             {puzzleTitle && (
               <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
             )}
-            <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '3. Clues Generated!'}</h3>
+            <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '4. Clues Generated!'}</h3>
             <div style={{ color: '#aaa', fontSize: '0.9em' }}>
               {useSpecificGoal && puzzle?.targetFact ? (
                 <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
@@ -1247,7 +1290,7 @@ function App() {
             )}
             {isInteractiveMode && (
               <button className="secondary-button" onClick={() => {
-                setActiveStep(1);
+                setActiveStep(2);
                 setSession(null);
                 setPuzzle(null); // Clean up the puzzle visualization
                 setInteractiveSolved(false);
@@ -1477,9 +1520,18 @@ function App() {
 
   const renderSteps = () => {
     const items = [];
-    if (maxStep >= 2) items.push(renderSolutionStep());
-    if (maxStep >= 1) items.push(renderGoalStep());
+    // Solution (Step 3) - Only if activeStep is 3
+    if (activeStep >= 3) items.push(renderSolutionStep());
+
+    // Generate (Step 2) - Only if activeStep >= 2
+    if (activeStep >= 2) items.push(renderGenerateStep());
+
+    // Goal (Step 1) - Only if activeStep >= 1
+    if (activeStep >= 1) items.push(renderGoalStep());
+
+    // Structure (Step 0) - Always visible
     items.push(renderStructureStep());
+
     return items;
   };
 
@@ -1667,7 +1719,7 @@ function App() {
               <LogicGridPuzzle
                 grid={displayGrid}
                 categories={categories}
-                targetFact={activeStep >= 1 ? {
+                targetFact={(activeStep >= 1 && useSpecificGoal) ? {
                   category1Id: categories[targetCat1Idx]?.id,
                   value1: categories[targetCat1Idx]?.values[targetVal1Idx] as string,
                   category2Id: categories[targetCat2Idx]?.id
@@ -1680,7 +1732,7 @@ function App() {
                 solution={puzzle?.solution}
                 // Only allow interaction if we have a puzzle AND we are in the Solution/Play step (Step index 2)
                 // We allow playing even during history scrubbing (User Request)
-                onInteract={(puzzle && activeStep >= 2) ? handleCellInteraction : undefined}
+                onInteract={(puzzle && activeStep >= 3) ? handleCellInteraction : undefined}
               />
             </div>
           )}

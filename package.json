@@ -1,6 +1,6 @@
 {
   "name": "logic-puzzle-generator",
-  "version": "0.6.0",
+  "version": "1.0.0",
   "description": "A headless, TypeScript-based Logic Grid Puzzle Engine.",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
