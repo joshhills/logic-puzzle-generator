@@ -146,43 +146,124 @@ export class Generator {
         target?: TargetFact,
         config: GeneratorOptions = {}
     ): Puzzle {
+        // Validation:
+        // 1. Min Categories
+        if (categories.length < 2) {
+            throw new ConfigurationError('Puzzle must have at least 2 categories.');
+        }
+
         const { targetClueCount, maxCandidates = 50, timeoutMs = 10000 } = config;
 
-        // Validation
-        if (categories.length < 2) throw new ConfigurationError("Must have at least 2 categories.");
-        if (targetClueCount !== undefined && targetClueCount < 1) throw new ConfigurationError("Target clue count must be at least 1");
-        if (maxCandidates < 1) throw new ConfigurationError("maxCandidates must be at least 1");
+        // 2. Validate Target
+        const finalTarget = target || this.generateRandomTarget(categories);
+        this.validateTarget(categories, finalTarget);
 
-        // Synthesize Target if Missing
-        let finalTarget = target;
-        if (!finalTarget) {
-            // Pick Random Target
-            const cat1Idx = Math.floor(this.random() * categories.length);
-            let cat2Idx = Math.floor(this.random() * categories.length);
-            while (cat2Idx === cat1Idx) {
-                cat2Idx = Math.floor(this.random() * categories.length);
+
+        // 3. Constraints
+        // Check for impossible requests
+        const constraints = config.constraints;
+        if (constraints?.allowedClueTypes) {
+            const types = constraints.allowedClueTypes;
+            const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
+            const requestedOrdinal = types.includes(ClueType.ORDINAL);
+            const requestedCrossOrdinal = types.includes(ClueType.CROSS_ORDINAL);
+
+            if (requestedOrdinal && !hasOrdinalCategory) {
+                // If Binary is allowed, we can fallback to just Binary. 
+                // Only throw if we strictly CANNOT satisfy this without Ordinal categories.
+                if (!types.includes(ClueType.BINARY)) {
+                    throw new ConfigurationError('Invalid Constraints: Ordinal-based clue types were requested, but no Ordinal categories exist. Please add an ordinal category or allow Binary clues.');
+                }
             }
-            const c1 = categories[cat1Idx];
-            const c2 = categories[cat2Idx];
-            const valIdx = Math.floor(this.random() * c1.values.length);
 
-            finalTarget = {
-                category1Id: c1.id,
-                value1: c1.values[valIdx],
-                category2Id: c2.id
-            };
-        }
-
-        // Validate target fact
-        const catIds = new Set(categories.map(c => c.id));
-        if (!catIds.has(finalTarget.category1Id) || !catIds.has(finalTarget.category2Id)) {
-            throw new ConfigurationError('Target fact refers to non-existent categories.');
-        }
-        if (finalTarget.category1Id === finalTarget.category2Id) {
-            throw new ConfigurationError('Target fact must refer to two different categories.');
+            if (requestedCrossOrdinal) {
+                const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+                if (ordinalCount < 2) {
+                    throw new ConfigurationError('Invalid Constraints: Cross-Ordinal clues require at least 2 Ordinal Categories.');
+                }
+            }
         }
 
         return this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints, onTrace: config.onTrace });
+    }
+
+    /**
+     * Helper to validate a target against categories
+     */
+    private validateTarget(categories: CategoryConfig[], target: TargetFact) {
+        const catIds = new Set(categories.map(c => c.id));
+        if (!catIds.has(target.category1Id) || !catIds.has(target.category2Id)) {
+            throw new ConfigurationError('Target fact refers to non-existent categories.');
+        }
+        if (target.category1Id === target.category2Id) {
+            throw new ConfigurationError('Target fact must refer to two different categories.');
+        }
+    }
+
+    /**
+     * Helper to generate a random target
+     */
+    private generateRandomTarget(categories: CategoryConfig[]): TargetFact {
+        const cat1Idx = Math.floor(this.random() * categories.length);
+        let cat2Idx = Math.floor(this.random() * categories.length);
+        while (cat2Idx === cat1Idx) {
+            cat2Idx = Math.floor(this.random() * categories.length);
+        }
+        const c1 = categories[cat1Idx];
+        const c2 = categories[cat2Idx];
+        const valIdx = Math.floor(this.random() * c1.values.length);
+
+        return {
+            category1Id: c1.id,
+            value1: c1.values[valIdx],
+            category2Id: c2.id
+        };
+    }
+
+    /**
+     * Asynchronously generates a puzzle (non-blocking wrapper).
+     * @param categories
+     * @param target
+     * @param config
+     */
+    public async generatePuzzleAsync(
+        categories: CategoryConfig[],
+        target?: TargetFact,
+        config: GeneratorOptions = {}
+    ): Promise<Puzzle> {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                try {
+                    const result = this.generatePuzzle(categories, target, config);
+                    resolve(result);
+                } catch (e) {
+                    reject(e);
+                }
+            }, 0);
+        });
+    }
+
+    /**
+     * Asynchronously estimates clue count bounds (non-blocking wrapper).
+     * @param categories
+     * @param target
+     * @param maxIterations
+     */
+    public async getClueCountBoundsAsync(
+        categories: CategoryConfig[],
+        target: TargetFact,
+        maxIterations: number = 10
+    ): Promise<{ min: number, max: number }> {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                try {
+                    const result = this.getClueCountBounds(categories, target, maxIterations);
+                    resolve(result);
+                } catch (e) {
+                    reject(e);
+                }
+            }, 0);
+        });
     }
 
     /**

@@ -5,6 +5,10 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)
 
+[View the interactive demo](https://project.joshhills.dev/logic-puzzle-generator/)
+
+![Interactive Demo Screenshot](./demo.png)
+
 
 A TypeScript library for generating, solving, and verifying "Zebra Puzzle" style logic grid puzzles.
 
@@ -183,24 +187,124 @@ The generator solves the puzzle as it builds it. The `puzzle.proofChain` array c
 ### `Generator`
 The main class. Use `new Generator(seed)` to initialize.
 
-- `generatePuzzle(categories, target, options)`: Returns a `Puzzle` object.
-    - `options.targetClueCount`: Attempt to find exact solution length.
-    - `options.maxCandidates`: Performance tuning (default 50).
-    - `options.onTrace`: **(Debug)** Callback `(msg: string) => void`. Receives real-time logs about the generation process (e.g., "Backtracking", "Pruning", "Solution Found"). Useful for debugging timeouts or understanding the generator's decision making.
+- `generatePuzzle(categories, target?, options?)`: Returns a `Puzzle` object.
+    - `target` (Optional): The `TargetFact` to solve for. If omitted, a random target is selected.
+    - `options.targetClueCount`: Attempt to find exact solution length. Avoids early termination.
+    - `options.maxCandidates`: Performance tuning (default 50). Limits the heuristic search width.
+    - `options.timeoutMs`: Abort generation if it exceeds this limit (default 10000ms).
+    - `options.constraints`: Filter allowed clue types.
+        - `allowedClueTypes`: `ClueType[]` (e.g. `[ClueType.BINARY, ClueType.ORDINAL]`).
+    - `options.onTrace`: **(Debug)** Callback `(msg: string) => void`. Receives real-time logs about the generation process.
+- `generatePuzzleAsync(...)`: **New in v1.1.0**. Non-blocking version of `generatePuzzle`. Returns `Promise<Puzzle>`.
 - `getClueCountBounds(categories, target)`: Returns plausible Min/Max clue counts.
-- `startSession(categories, target?)`: [Beta] Starts a `GenerativeSession` for step-by-step interactive generation (useful for "Builder Mode" UIs).
+- `getClueCountBoundsAsync(...)`: **New in v1.1.0**. Non-blocking version. Returns `Promise<{ min, max }>`.
+- `startSession(categories, target?)`: [Beta] Starts a `GenerativeSession` for step-by-step interactive generation.
+
+#### Advanced / Internal API
+- `calculateClueScore(grid, target, deductions, clue, ...)`: **(Extensible)** detailed heuristic scoring for clue selection.
+- `isPuzzleSolved(grid, solution, ...)`: Checks if the grid matches the unique solution.
+- `generateAllPossibleClues(...)`: Generates every valid clue for the current configuration (unfiltered).
 
 ### Extensibility
 The `Generator` class is designed to be extensible. Key methods like `calculateClueScore` are `public`, allowing you to extend the class and inject custom heuristics.
 
 ### `LogicGrid`
 Manages the state of the puzzle grid (possibility matrix).
+- `constructor(categories: CategoryConfig[])`: Initializes a new grid.
 - `isPossible(cat1, val1, cat2, val2)`: Returns true if a connection is possible.
-- `setPossibility(...)`: Manually set states (useful for custom solvers).
+- `setPossibility(cat1, val1, cat2, val2, state)`: Manually set connection state.
+- `getPossibilitiesCount(cat1, val1, cat2)`: Returns the number of remaining possibilities for a value in a target category.
+- `getGridStats()`: Returns `{ totalPossible, currentPossible, solutionPossible }` to track solving progress.
+- `clone()`: Creates a deep copy of the grid.
 
 ### `Solver`
-The logical engine.
-- `applyClue(grid, clue)`: Applies a clue and cascades deductions.
+The logical engine responsible for applying clues and performing deductions.
+- `applyClue(grid, clue)`: Applies a clue and cascades deductions. Returns `{ deductions: number }`.
+- `runDeductionLoop(grid)`: repeatedly applies elimination logic until the grid stabilizes.
+
+#### Internal Deduction Methods
+- `applyBinaryClue(grid, clue)`
+- `applyOrdinalClue(grid, clue)`
+- `applyCrossOrdinalClue(grid, clue)`
+- `applySuperlativeClue(grid, clue)`
+- `applyUnaryClue(grid, clue)`
+
+### `GenerativeSession`
+Manages a stateful, step-by-step puzzle generation process.
+- `getNextClue(constraints?)`: Returns `{ clue: Clue | null, remaining: number, solved: boolean }`.
+    - Generates and selects the next best clue based on the current grid state.
+    - `constraints`: Optional `ClueGenerationConstraints`.
+- `getNextClueAsync(constraints?)`: **New in v1.1.1**. Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
+- `rollbackLastClue()`: Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
+- `getGrid()`: Returns the current `LogicGrid` state.
+- `getSolution()`: Returns the target `Solution` map.
+- `getProofChain()`: Returns the list of `Clue`s applied so far.
+- `getValueMap()`: Returns the optimized internal value categorization map.
+
+### Data Types
+
+#### `CategoryConfig`
+Configuration for a single category.
+```typescript
+interface CategoryConfig {
+  id: string; // e.g. "Suspect"
+  values: string[]; // e.g. ["Mustard", "Plum"...]
+  type: CategoryType; // NOMINAL | ORDINAL
+}
+```
+
+#### `TargetFact`
+Defines the goal of the puzzle (e.g., "Who killed Mr. Boddy?").
+```typescript
+interface TargetFact {
+  category1Id: string;
+  value1: string;
+  category2Id: string;
+}
+```
+
+#### `ClueType`
+Enum for available clue logic: `BINARY` (Direct), `ORDINAL` (Comparison), `CROSS_ORDINAL` (Relative), `SUPERLATIVE` (Min/Max), `UNARY` (Properties).
+
+## Interactive Generation (Builder Mode)
+
+For UIs where you want to watch the puzzle being built (or let the user manually pick the next clue type), use the `GenerativeSession`.
+
+```typescript
+const session = generator.startSession(categories, target);
+let solved = false;
+
+while (!solved) {
+    // 1. Get the next best clue (optionally force a specific type)
+    const result = session.getNextClue({ 
+        allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL] 
+    });
+
+    if (result.clue) {
+        console.log("Next Clue:", result.clue);
+        solved = result.solved;
+    } else {
+        console.warn("No more clues available.");
+        break;
+    }
+}
+```
+
+## Error Handling
+
+The library uses specific error types to help you debug configuration issues.
+
+| Method | Throws | Reason |
+| :--- | :--- | :--- |
+| Method | Throws | Reason |
+| :--- | :--- | :--- |
+| `new Generator()` | `Error` | If `seed` is invalid (NaN). |
+| `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
+| `startSession()` | `ConfigurationError` | - Less than 2 categories. |
+| `LogicGrid()` | `ConfigurationError` | - Duplicate Category IDs <br> - Duplicate Values within a category <br> - Mismatched value counts (all categories must be same size). |
+
+
+
 
 ## AI Disclosure & Liability Policy
 

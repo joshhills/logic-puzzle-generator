@@ -1080,7 +1080,21 @@ function App() {
                     setTargetCat1Idx(newVal);
                     if (newVal === targetCat2Idx) setTargetCat2Idx(targetCat1Idx);
                   }}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                  style={{
+                    padding: '8px',
+                    paddingRight: '32px',
+                    borderRadius: '4px',
+                    backgroundColor: '#333',
+                    color: '#fff',
+                    border: '1px solid #444',
+                    fontWeight: 'bold',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center'
+                  }}
                 >
                   {categories.map((c, i) => (
                     <option key={i} value={i}>{c.id}</option>
@@ -1090,7 +1104,21 @@ function App() {
                 <select
                   value={targetVal1Idx}
                   onChange={e => setTargetVal1Idx(Number(e.target.value))}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                  style={{
+                    padding: '8px',
+                    paddingRight: '32px',
+                    borderRadius: '4px',
+                    backgroundColor: '#333',
+                    color: '#fff',
+                    border: '1px solid #444',
+                    fontWeight: 'bold',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center'
+                  }}
                 >
                   {categories[targetCat1Idx]?.values.map((v, i) => (
                     <option key={i} value={i}>{v}</option>
@@ -1104,7 +1132,21 @@ function App() {
                     setTargetCat2Idx(newVal);
                     if (newVal === targetCat1Idx) setTargetCat1Idx(targetCat2Idx);
                   }}
-                  style={{ padding: '8px', borderRadius: '4px', backgroundColor: '#333', color: '#fff', border: '1px solid #444', fontWeight: 'bold' }}
+                  style={{
+                    padding: '8px',
+                    paddingRight: '32px',
+                    borderRadius: '4px',
+                    backgroundColor: '#333',
+                    color: '#fff',
+                    border: '1px solid #444',
+                    fontWeight: 'bold',
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 12px center'
+                  }}
                 >
                   {categories.map((c, i) => (
                     <option key={i} value={i}>{c.id}</option>

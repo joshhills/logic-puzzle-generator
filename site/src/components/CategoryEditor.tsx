@@ -478,7 +478,7 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                     <label style={{ display: 'block', fontSize: '0.75em', color: '#888', marginBottom: '4px', textTransform: 'uppercase' }}>Category Name</label>
                                 </div>
                                 <div style={{ display: 'flex', gap: GAP, alignItems: 'center' }}>
-                                    {/* Category Drag Handle Slot */}
+                                    {/* Category Drag Handle */}
                                     <div
                                         style={{
                                             width: HANDLE_WIDTH,
@@ -524,8 +524,8 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                             pointerEvents: 'none'
                                         }}>{cat.id.length}/15</span>
                                     </div>
-                                    {/* Alignment Spacer */}
-                                    {canDeleteItems && <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>}
+                                    {/* Always reserve space for alignment consistency */}
+                                    <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>
                                 </div>
                                 {isEmptyName && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>Required</div>}
                                 {isDuplicate && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: `calc(${HANDLE_WIDTH} + ${GAP})` }}>Duplicate Name</div>}
@@ -542,11 +542,27 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                         <select
                                             value={cat.type}
                                             onChange={(e) => handleTypeChange(i, Number(e.target.value))}
-                                            style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px',
+                                                paddingRight: '32px',
+                                                borderRadius: '4px',
+                                                border: '1px solid #555',
+                                                backgroundColor: '#222',
+                                                color: '#fff',
+                                                appearance: 'none',
+                                                WebkitAppearance: 'none',
+                                                MozAppearance: 'none',
+                                                backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                                                backgroundRepeat: 'no-repeat',
+                                                backgroundPosition: 'right 12px center'
+                                            }}
                                         >
                                             <option value={CategoryType.NOMINAL}>Nominal</option>
                                             <option value={CategoryType.ORDINAL}>Ordinal</option>
                                         </select>
+                                        {/* Spacer for Action Column (for alignment) */}
+                                        <div style={{ width: BUTTON_WIDTH, flexShrink: 0 }}></div>
                                     </div>
                                 </div>
                             </div>
@@ -558,7 +574,7 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                     <button
                                         onClick={() => handleSort(i)}
                                         title="Sort values naturally"
-                                        style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.8em', padding: 0 }}
+                                        style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.8em', padding: 0, marginRight: `calc(${BUTTON_WIDTH} + ${GAP})` }}
                                     >
                                         Sort
                                     </button>
@@ -647,33 +663,36 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
                                                     {isDuplicateValue && !isEmptyValue && <div style={{ color: '#ef4444', fontSize: '0.7em', marginTop: '2px', marginLeft: '2px' }}>Duplicate Value</div>}
                                                 </div>
 
-                                                {canDeleteItems && (
-                                                    <button
-                                                        onClick={() => handleRemoveGlobalItem(vIdx)}
-                                                        title="Remove Value Row (from all categories)"
-                                                        style={{
-                                                            background: 'none',
-                                                            border: 'none',
-                                                            color: '#666',
-                                                            cursor: 'pointer',
-                                                            fontSize: '1.2em',
-                                                            padding: '0 4px',
-                                                            lineHeight: 1,
-                                                            width: BUTTON_WIDTH,
-                                                            textAlign: 'center'
-                                                        }}
-                                                        onMouseEnter={(e) => {
-                                                            e.currentTarget.style.color = '#ef4444';
-                                                            setHoveredDeleteIndex(vIdx);
-                                                        }}
-                                                        onMouseLeave={(e) => {
-                                                            e.currentTarget.style.color = '#666';
-                                                            setHoveredDeleteIndex(null);
-                                                        }}
-                                                    >
-                                                        &times;
-                                                    </button>
-                                                )}
+                                                {/* Delete Action (Always occupy space) */}
+                                                <div style={{ width: BUTTON_WIDTH, flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
+                                                    {canDeleteItems && (
+                                                        <button
+                                                            onClick={() => handleRemoveGlobalItem(vIdx)}
+                                                            title="Remove Value Row (from all categories)"
+                                                            style={{
+                                                                background: 'none',
+                                                                border: 'none',
+                                                                color: '#666',
+                                                                cursor: 'pointer',
+                                                                fontSize: '1.2em',
+                                                                padding: '0 4px',
+                                                                lineHeight: 1,
+                                                                width: '100%',
+                                                                textAlign: 'center'
+                                                            }}
+                                                            onMouseEnter={(e) => {
+                                                                e.currentTarget.style.color = '#ef4444';
+                                                                setHoveredDeleteIndex(vIdx);
+                                                            }}
+                                                            onMouseLeave={(e) => {
+                                                                e.currentTarget.style.color = '#666';
+                                                                setHoveredDeleteIndex(null);
+                                                            }}
+                                                        >
+                                                            &times;
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         )
                                     })}

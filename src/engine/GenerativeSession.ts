@@ -107,6 +107,23 @@ export class GenerativeSession {
         return { clue: null, remaining: validClues.length, solved: this.generator.isPuzzleSolved(this.grid, this.solution, this.reverseSolution) };
     }
 
+    /**
+     * Asynchronously gets the next clue (non-blocking wrapper).
+     * @param constraints
+     */
+    public async getNextClueAsync(constraints?: ClueGenerationConstraints): Promise<{ clue: Clue | null, remaining: number, solved: boolean }> {
+        return new Promise((resolve, reject) => {
+            setTimeout(() => {
+                try {
+                    const result = this.getNextClue(constraints);
+                    resolve(result);
+                } catch (e) {
+                    reject(e);
+                }
+            }, 0);
+        });
+    }
+
     public rollbackLastClue(): { success: boolean, clue: Clue | null } {
         if (this.historyStack.length === 0) return { success: false, clue: null };
 

@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.1] (2025-12-22)
+
+### Features
+* **GenerativeSession:** Added `getNextClueAsync` for non-blocking interactive generation.
+
+## [1.1.0] (2025-12-22)
+
+### Features
+* **Generator:** Added `generatePuzzleAsync` and `getClueCountBoundsAsync` for non-blocking generation.
+
+## [1.0.0] (2025-12-22)
+
+### Features
+* **Release:** Initial stable release.
+
 ### [0.2.2](https://github.com/joshhills/logic-puzzle-generator/compare/v0.2.1...v0.2.2) (2025-12-16)
 
 ### [0.2.1](https://github.com/joshhills/logic-puzzle-generator/compare/v0.2.0...v0.2.1) (2025-12-16)
