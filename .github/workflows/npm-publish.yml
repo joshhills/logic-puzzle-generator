@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish:
-    if: "!contains(github.event.head_commit.message, 'chore(release):')" # Avoid loops if you use tools that auto-commit releases
+
     runs-on: ubuntu-latest
     permissions:
       contents: read
