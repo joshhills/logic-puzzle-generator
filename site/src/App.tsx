@@ -1696,7 +1696,7 @@ function App() {
                     <div style={{ fontSize: '1.1em', color: '#fff' }}>
                       {renderPlainLanguageClue(step.clue, categories)}
                     </div>
-                    <div style={{ fontSize: '0.8em', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
+                    <div className="print-hide" style={{ fontSize: '0.8em', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
                       {desc}
                     </div>
                   </div>

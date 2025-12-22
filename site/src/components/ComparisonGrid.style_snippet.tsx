@@ -1,0 +1,8 @@
+width: '100%',
+    height: '100%',
+        backgroundColor: bgColor,
+            display: 'flex',
+                alignItems: 'center',
+                    justifyContent: 'center',
+                        fontSize: '18px',
+                            fontWeight: 'bold',

@@ -212,6 +212,7 @@
 
   /* Hiding Configuration Steps */
   .step-structure,
+  .step-story,
   .step-goal,
   .step-generate {
     display: none !important;
@@ -260,13 +261,17 @@
   /* Grid & Table Specifics */
   .grid-cell {
     border: none !important;
-    display: block !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   .comparison-grid {
     background-color: #000 !important;
     gap: 1px !important;
     border: 2px solid #000 !important;
+    margin-right: 0 !important;
+    margin-bottom: 0 !important;
   }
 
   /* Force exact colors (backgrounds etc) */
