@@ -14,7 +14,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
                 {categories.map((cat, i) => {
                     const isOrdinal = cat.type === CategoryType.ORDINAL;
 
@@ -34,8 +34,8 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                             </h3>
 
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '15px' }}>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Unit name (e.g. suspect)</label>
                                         <input
                                             type="text"
@@ -45,7 +45,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', fontSize: '0.85em', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
                                         />
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Verb (e.g. is / has)</label>
                                         <input
                                             type="text"
@@ -56,7 +56,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                         />
                                     </div>
 
-                                    <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ flex: '1 1 100%', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <input
                                             type="checkbox"
                                             checked={cat.labels?.includeGroupName ?? true}
@@ -66,7 +66,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                         <label style={{ fontSize: '0.8em', color: '#ccc', cursor: 'pointer' }}>Include unit name in clues (e.g. "{cat.labels?.groupName || cat.id.toLowerCase()}")</label>
                                     </div>
 
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Value prefix (e.g. "the", "a")</label>
                                         <input
                                             type="text"
@@ -76,7 +76,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', fontSize: '0.85em', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
                                         />
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Value suffix (e.g. "gold")</label>
                                         <input
                                             type="text"
@@ -86,7 +86,7 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', fontSize: '0.85em', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
                                         />
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Subject prefix (e.g. "the person with")</label>
                                         <input
                                             type="text"

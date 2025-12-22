@@ -32,6 +32,13 @@ interface LogicGridPuzzleProps {
 
 export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, grid, targetFact, viewMode = 'solution', userPlayState, checkAnswers, solution, onInteract }) => {
     const [activeHover, setActiveHover] = React.useState<HoverState | null>(null);
+    const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
+
+    React.useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 768);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     if (!categories || categories.length < 2) return <div>Invalid Categories</div>;
 
@@ -57,8 +64,8 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
         ...categories.slice(2).reverse()
     ];
 
-    const cellSize = 40; // match ComparisonGrid
-    const labelSize = 100;
+    const cellSize = isMobile ? 28 : 40; // match ComparisonGrid
+    const labelSize = isMobile ? 80 : 100;
 
     const isHeaderHighlighted = (axis: 'row' | 'col', catIndex: number, valIndex: number) => {
         if (!activeHover) return false;
@@ -70,7 +77,7 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
     };
 
     return (
-        <div style={{ display: 'inline-block' }}>
+        <div style={{ display: 'inline-block' }} className="logic-grid-container" role="grid" aria-label="Logic Puzzle Grid">
             <div style={{ display: 'grid', gridTemplateColumns: `${labelSize}px repeat(${topCategories.length}, auto)` }}>
                 {/* Header Row */}
                 <div /* Top-Left Corner (Empty) */ />
@@ -260,6 +267,7 @@ export const LogicGridPuzzle: React.FC<LogicGridPuzzleProps> = ({ categories, gr
                                         // Layout Coords
                                         gridIndexRow={rowIndex}
                                         gridIndexCol={colIndex}
+                                        cellSize={cellSize}
 
                                         // Hover State
                                         activeHover={activeHover}

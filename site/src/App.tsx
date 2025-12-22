@@ -598,6 +598,24 @@ function App() {
     setIsGenerating(true);
     setTimeLeft(180); // 3 minutes (Sync with timeoutMs)
 
+    const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+
+    // Check for valid Unary category (mixed odd/even in at least one ordinal category)
+    const hasValidUnaryCategory = categories.some(cat => {
+      if (cat.type !== CategoryType.ORDINAL) return false;
+      const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+      const hasOdd = numericValues.some(v => v % 2 !== 0);
+      const hasEven = numericValues.some(v => v % 2 === 0);
+      return hasOdd && hasEven;
+    });
+
+    const filteredAllowedClueTypes = allowedClueTypes.filter(type => {
+      if (type === ClueType.CROSS_ORDINAL) return ordinalCount >= 2;
+      if (type === ClueType.UNARY) return hasValidUnaryCategory; // Must have mixed odd/even
+      if ([ClueType.ORDINAL, ClueType.SUPERLATIVE].includes(type)) return ordinalCount >= 1;
+      return true;
+    });
+
     // String Hashing for Seed
     const getSeed = (input: string): number => {
       if (!input) return Date.now();
@@ -642,14 +660,7 @@ function App() {
         setSession(ss);
         setInteractiveSolved(false);
 
-        // Filter constraints to only what is actually supported by current categories
-        const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
-        const filteredSupportedTypes = allowedClueTypes.filter(type => {
-          if (type === ClueType.CROSS_ORDINAL) return ordinalCount >= 2;
-          if ([ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY].includes(type)) return ordinalCount >= 1;
-          return true;
-        });
-        setNextClueConstraints(filteredSupportedTypes);
+        setNextClueConstraints(filteredAllowedClueTypes);
 
         setPuzzle({
           solution: ss.getSolution(),
@@ -722,7 +733,7 @@ function App() {
         options: {
           targetClueCount: useTargetClueCount ? targetClueCount : undefined,
           timeoutMs: 180000,
-          constraints: { allowedClueTypes },
+          constraints: { allowedClueTypes: filteredAllowedClueTypes },
           // generator seed isn't passed yet! we generated 's' but Generator ctor takes it.
           // We need to pass seed to worker if Generator supports it.
           // Currently Generator class ctor takes seed.
@@ -867,7 +878,7 @@ function App() {
       onClick={() => activeStep !== 0 && jumpToStep(0)}
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 className="step-header" style={{ margin: 0, color: '#fff' }}>1. Structure</h3>
+        <h3 className="step-header" style={{ margin: 0, color: '#fff' }}>1. Define the structure</h3>
         <div style={{ color: '#aaa' }}>{numCats} Categories, {numItems} Items</div>
       </div>
 
@@ -995,13 +1006,13 @@ function App() {
         border: activeStep === 2 ? '1px solid #3b82f6' : '1px solid transparent'
       }}
     >
-      <div style={{ padding: '20px', borderBottom: activeStep === 2 ? '1px solid #333' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ padding: '20px', borderBottom: activeStep === 2 ? '1px solid #333' : 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
         <h3 style={{ margin: 0, color: '#fff' }}>3. Set the Goal</h3>
         {activeStep !== 2 && activeStep > 2 && <div style={{ color: '#aaa' }}>{useSpecificGoal ? 'Specific Target' : 'Full Grid'}</div>}
       </div>
 
       {activeStep === 2 && (
-        <div style={{ padding: '0 20px 20px 20px', color: '#ccc' }}>
+        <div style={{ padding: '20px', color: '#ccc' }}>
           <div style={{ marginBottom: '20px' }}>
             <label style={{ display: 'block', marginBottom: '8px' }}>Puzzle Title (Optional)</label>
             <input
@@ -1156,7 +1167,7 @@ function App() {
       }}
     >
       <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h3 style={{ margin: 0, color: '#fff' }}>4. Generate</h3>
+        <h3 style={{ margin: 0, color: '#fff' }}>4. Generate clues</h3>
         {activeStep !== 3 && activeStep > 3 && <div style={{ color: '#aaa' }}>{isInteractiveMode ? 'Interactive' : (useTargetClueCount ? `${targetClueCount} Clues` : 'Full Puzzle')}</div>}
       </div>
 
@@ -1295,7 +1306,7 @@ function App() {
               style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #444', backgroundColor: '#111', color: '#fff', boxSizing: 'border-box' }}
             />
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               onClick={() => setActiveStep(2)}
               disabled={isGenerating}
@@ -1314,7 +1325,7 @@ function App() {
             >
               &larr; Back
             </button>
-            <div style={{ display: 'flex', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               {isGenerating && (
                 <button
                   onClick={(e) => { e.stopPropagation(); handleCancel(); }}
@@ -1409,7 +1420,7 @@ function App() {
           border: activeStep === 4 ? '1px solid #10b981' : '1px solid transparent'
         }}
       >
-        <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ padding: '20px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
           <div>
             {puzzleTitle && (
               <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
@@ -1423,7 +1434,7 @@ function App() {
               )}
             </div>
           </div>
-          <div className="print-hide" style={{ display: 'flex', gap: '10px' }}>
+          <div className="print-hide" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {(!isInteractiveMode || interactiveSolved) && (
               <>
                 <button
@@ -1694,7 +1705,7 @@ function App() {
             );
           })}
         </div>
-        <div style={{ padding: '20px', textAlign: 'center' }}>
+        <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {!seedInput && !isInteractiveMode && (
             <button
               onClick={handleGenerate}
@@ -1707,7 +1718,7 @@ function App() {
             className="header-reset-btn"
             onClick={() => setIsResetModalOpen(true)}
             disabled={!canReset}
-            style={{ padding: '10px 20px', background: 'transparent', color: !canReset ? '#666' : '#aaa', border: '1px solid #555', borderRadius: '4px', cursor: !canReset ? 'not-allowed' : 'pointer', marginLeft: '10px' }}>
+            style={{ padding: '10px 20px', background: 'transparent', color: !canReset ? '#666' : '#aaa', border: '1px solid #555', borderRadius: '4px', cursor: !canReset ? 'not-allowed' : 'pointer' }}>
             Reset All
           </button>
         </div>
@@ -1939,7 +1950,7 @@ function App() {
         </div>
 
         {/* Bottom: Scrollable Accordion Flow (Natural Page Scroll) */}
-        <div style={{ padding: '40px 10%' }}>
+        <div className="step-container">
           <div className="print-hide" style={{ marginBottom: '20px', color: '#666', textTransform: 'uppercase', letterSpacing: '2px', fontSize: '0.8em' }}>Configuration Steps</div>
           {renderSteps()}
 

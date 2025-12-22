@@ -17,7 +17,7 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport, onSave, onManageSaves, onInfo, isDirty = true }) => {
     return (
-        <div className="sidebar">
+        <div className="sidebar" role="navigation" aria-label="Main Navigation">
             <div style={{ marginBottom: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <img src="./logic-puzzle-generator-logo.png" alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '4px' }} />
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', margin: 0, lineHeight: '1.2' }}>Logic Puzzle<br />Generator</h2>
@@ -33,13 +33,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                     return (
                         <div
                             key={index}
-                            onClick={() => {
-                                if (isReachable) onStepSelect(index);
-                            }}
+                            className={`sidebar-step-item ${isActive ? 'active' : ''}`}
                             style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                padding: '12px 15px',
+                                padding: '8px 12px',
                                 borderRadius: '8px',
                                 backgroundColor: isActive ? '#3b82f6' : 'transparent',
                                 color: isActive ? '#fff' : (isReachable ? '#aaa' : '#444'),
@@ -60,11 +58,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                                 justifyContent: 'center',
                                 marginRight: '12px',
                                 fontSize: '0.8em',
-                                fontWeight: 'bold'
+                                fontWeight: 'bold',
+                                flexShrink: 0  // Prevent icon shrinking
                             }}>
                                 {index < currentStep ? '✓' : (index + 1)}
                             </div>
-                            {step}
+                            <span className="sidebar-step-label">{step}</span>
                         </div>
                     );
                 })}
@@ -98,6 +97,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                             {onManageSaves && <button
                                 onClick={onManageSaves}
                                 title="Manage Saved Games"
+                                aria-label="Load Saved Game"
                                 style={{ flex: 1, padding: '10px', background: '#333', border: '1px solid #555', color: '#eee', borderRadius: '6px', cursor: 'pointer', fontSize: '0.9em' }}
                             >
                                 📂 Load
@@ -107,6 +107,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                             {onImport && <button
                                 onClick={onImport}
                                 title="Import JSON File"
+                                aria-label="Import JSON File"
                                 style={{ flex: 1, padding: '8px', background: '#222', border: '1px solid #444', color: '#ccc', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85em' }}
                             >
                                 Import
@@ -126,8 +127,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSele
                     <button
                         onClick={onReset}
                         disabled={!canReset}
+                        className="reset-btn"
+                        aria-label="Reset Puzzle"
                         style={{
-                            width: '100%',
                             padding: '10px',
                             backgroundColor: 'transparent',
                             border: `1px solid ${canReset ? '#555' : '#333'}`,

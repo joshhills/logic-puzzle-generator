@@ -1,4 +1,8 @@
 /* Reset default Vite styles */
+.reset-btn {
+  width: 100%;
+}
+
 #root {
   width: 100%;
   min-height: 100vh;
@@ -37,6 +41,11 @@
   transition: margin-left 0.3s ease;
 }
 
+/* Main Content Container Padding */
+.step-container {
+  padding: 40px 10%;
+}
+
 /* Mobile: < 768px */
 @media (max-width: 768px) {
   .sidebar {
@@ -65,24 +74,66 @@
     justify-content: center;
   }
 
-  /* Make steps container horizontal scrollable if needed, or grid */
+  /* Make steps container wrap/grid instead of scroll */
+  /* Make steps container linear and compact */
   .sidebar>div:nth-child(2) {
     flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    /* No wrapping, keep it in one line */
     overflow-x: auto;
+    /* Allow scroll if it somehow overflows small screens, but aim for fit */
     padding-bottom: 5px;
-    /* Optional: custom scrollbar styling if needed */
+    gap: 8px;
+    /* Tighter gap */
+    justify-content: space-between;
+    /* Spread evenly */
   }
 
-  /* Make step items compact */
-  .sidebar>div:nth-child(2)>div {
-    white-space: nowrap;
+  /* Step Item Styles */
+  .sidebar-step-item {
     flex: 0 0 auto;
+    width: auto;
+    padding: 8px !important;
+    /* Reduced padding (removed side padding mostly) */
+    justify-content: center;
+  }
+
+  .sidebar-step-item.active {
+    flex: 0 0 auto;
+    /* Active one takes necessary space */
+    padding: 8px 12px !important;
+    /* More padding for active */
+  }
+
+  /* Step Label Hiding Logic */
+  .sidebar-step-label {
+    display: none;
+  }
+
+  .sidebar-step-item.active .sidebar-step-label {
+    display: block;
+    margin-left: 0;
+    /* Already has margin on icon */
+    white-space: nowrap;
+  }
+
+  /* Icon adjustments */
+  .sidebar-step-item>div:first-child {
+    margin-right: 0 !important;
+    /* Remove margin when stand-alone */
+  }
+
+  .sidebar-step-item.active>div:first-child {
+    margin-right: 10px !important;
+    /* Restore margin when label is visible */
   }
 
   /* Ensure footer actions are visible */
   .sidebar>div:nth-child(3) {
     margin-bottom: 0 !important;
     flex-direction: row !important;
+    justify-content: center !important;
+    /* Center the buttons */
   }
 
   /* Hide the footer links on mobile to save space */
@@ -92,6 +143,25 @@
 
   .main-content {
     margin-left: 0;
+  }
+
+  /* Responsive Reset Button */
+  .reset-btn {
+    width: auto !important;
+    max-width: 150px;
+    flex-grow: 0;
+  }
+
+  /* Responsive Logic Grid */
+  /* We will control cell size via JS, but let's ensure containers don't overflow */
+  .logic-grid-container {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Mobile Step Container Padding */
+  .step-container {
+    padding: 20px 5% !important;
   }
 }
 
@@ -190,6 +260,7 @@
   /* Grid & Table Specifics */
   .grid-cell {
     border: none !important;
+    display: block !important;
   }
 
   .comparison-grid {

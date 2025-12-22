@@ -42,6 +42,8 @@ interface ComparisonGridProps {
     checkAnswers?: boolean;
     solution?: Record<string, Record<string, string | number>>;
     onInteract?: (c1: string, v1: string | number, c2: string, v2: string | number) => void;
+    // Layout
+    cellSize?: number;
 }
 
 export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
@@ -57,9 +59,9 @@ export const ComparisonGrid: React.FC<ComparisonGridProps> = ({
     userPlayState,
     checkAnswers,
     solution,
-    onInteract
+    onInteract,
+    cellSize = 40
 }) => {
-    const cellSize = 40;
 
     // Helper for "Check Answers" logic
     const rowValueToBase = new Map<string | number, string | number>();
