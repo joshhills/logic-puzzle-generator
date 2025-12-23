@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.9] (2025-12-23)
+
+### Fixes
+* **Release:** Updated CI to use Node.js 24 to ensure npm >= 11.5.1 for trusted publishing compatibility.
+
+## [1.1.8] (2025-12-23)
+
+### Fixes
+* **Release:** strict config alignment with Trusted Publishing docs (trailing slash, auto-provenance).
+
 ## [1.1.7] (2025-12-23)
 
 ### Fixes
