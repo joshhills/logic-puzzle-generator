@@ -3,6 +3,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.3] - 2025-12-23
+### Changed
+- **UI**: Refined search button layout to separate row ("Search - Generate - Undo").
+- **UI**: Fixed "Generate" button layout shift by enforcing fixed width on "Search" button.
+- **UI**: Removed redundant "Find Specific Clues" header.
+
 ## [1.2.2] - 2025-12-23
 ### Fixed
 - **UI**: Fixed search results not refreshing when puzzle state changes (e.g. adding or undoing a clue).

@@ -1714,185 +1714,180 @@ function App() {
               </div>
             </div>
 
-            {/* Inline Search Panel */}
-            <div style={{ marginTop: '20px', borderTop: '1px solid #504945', paddingTop: '15px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ color: '#aaa', fontSize: '0.9em', fontWeight: 'bold' }}>Find Specific Clues</span>
-                <button
-                  onClick={() => {
-                    if (isSearchOpen) {
-                      setIsSearchOpen(false);
-                    } else {
-                      const results = session.getScoredMatchingClues({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput });
-                      setSearchResults(results);
-                      setIsSearchOpen(true);
-                    }
-                  }}
-                  disabled={interactiveSolved}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: isSearchOpen ? '#504945' : '#32302f',
-                    color: isSearchOpen ? '#fff' : '#888',
-                    border: '1px solid #504945',
-                    borderRadius: '4px',
-                    cursor: interactiveSolved ? 'not-allowed' : 'pointer',
-                    fontSize: '0.85em',
-                    transition: 'all 0.2s',
-                    display: 'flex', alignItems: 'center', gap: '6px'
-                  }}
-                >
-                  {isSearchOpen ? 'Hide Search' : 'Show Matching Clues...'}
-                  <span style={{ backgroundColor: '#504945', padding: '1px 5px', borderRadius: '10px', fontSize: '0.8em' }}>
-                    {session.getMatchingClueCount({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput })}
-                  </span>
-                </button>
-              </div>
 
-              {isSearchOpen && (
-                <div style={{
-                  maxHeight: '300px',
-                  overflowY: 'auto',
-                  backgroundColor: '#1d2021',
-                  border: '1px solid #3c3836',
-                  borderRadius: '6px',
-                  padding: '10px',
-                  marginBottom: '15px'
-                }}>
-                  {searchResults.length === 0 ? (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#665c54', fontStyle: 'italic' }}>
-                      No matching clues found. Try relaxing constraints.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {searchResults.map((item, idx) => (
-                        <div key={idx} style={{
-                          display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '15px', padding: '8px',
-                          backgroundColor: item.isDirectAnswer ? '#1d2021' : '#282828',
-                          borderRadius: '4px',
-                          border: item.isDirectAnswer ? '1px dashed #fb4934' : '1px solid #333',
-                          opacity: item.isDirectAnswer ? 0.7 : 1
-                        }}>
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: '0.9em', color: item.isDirectAnswer ? '#fb4934' : '#dbdbdb', lineHeight: '1.4' }}>{renderPlainLanguageClue(item.clue, categories)}</span>
-                            {item.isDirectAnswer && <span style={{ fontSize: '0.75em', color: '#cc241d', fontStyle: 'italic' }}>⚠️ Direct Answer</span>}
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
-                            <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
-                            <span title="Deductions">Ded: <span style={{ color: '#98971a' }}>{item.deductions}</span></span>
-                          </div>
-                          <button
-                            onClick={() => {
-                              const result = session?.useClue(item.clue);
-                              if (result && session && puzzle) {
-                                const newStep = { clue: item.clue } as any;
-                                const newProof = [...puzzle.proofChain, newStep];
-                                const newClues = [...puzzle.clues, item.clue];
-                                setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                                setSelectedStep(newProof.length - 1);
-                                if (result.solved) {
-                                  showAlert("Puzzle Solved!", "The grid is fully solved!");
-                                  setInteractiveSolved(true);
-                                }
-                              }
-                              // Optional: Keep search open or close it? User probably wants to add more?
-                              // Let's keep it open but maybe refresh results?
-                              // Refreshing is expensive and might shift layout. Let's just remove the used one?
-                              // For now, simple: just keep open.
-                            }}
-                            disabled={item.isDirectAnswer}
-                            style={{
-                              padding: '4px 10px',
-                              backgroundColor: item.isDirectAnswer ? '#3c3836' : '#689d6a',
-                              color: item.isDirectAnswer ? '#7c6f64' : '#282828',
-                              border: 'none',
-                              borderRadius: '3px',
-                              cursor: item.isDirectAnswer ? 'not-allowed' : 'pointer',
-                              fontWeight: 'bold',
-                              fontSize: '0.8em'
-                            }}
-                          >
-                            {item.isDirectAnswer ? 'Solved' : 'Add'}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+            {/* Action Buttons Row */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+              {/* Search Toggle */}
+              <button
+                onClick={() => setIsSearchOpen(!isSearchOpen)}
+                disabled={interactiveSolved}
+                style={{
+                  padding: '10px 15px',
+                  backgroundColor: isSearchOpen ? '#504945' : '#32302f',
+                  color: isSearchOpen ? '#fff' : '#aaa',
+                  border: '1px solid #504945',
+                  borderRadius: '5px',
+                  cursor: interactiveSolved ? 'not-allowed' : 'pointer',
+                  fontWeight: 'bold',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  minWidth: '200px',
+                  justifyContent: 'center'
+                }}
+              >
+                {isSearchOpen ? 'Hide Search' : 'Find Matching Clues'}
+                <span style={{ backgroundColor: '#282828', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8em', color: '#aaa' }}>
+                  {session.getMatchingClueCount({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput })}
+                </span>
+              </button>
+
+              {/* Generate Button */}
+              <button
+                onClick={() => {
+                  const result = session.getNextClue({
+                    allowedClueTypes: nextClueConstraints,
+                    includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+                    excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+                    minDeductions: minDeductionsInput
+                  });
+
+                  if (result.clue) {
+                    const newStep = { clue: result.clue } as any;
+                    const newProof = [...puzzle.proofChain, newStep];
+                    const newClues = [...puzzle.clues, result.clue];
+                    setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                    setSelectedStep(newProof.length - 1);
+                  } else {
+                    if (result.solved) {
+                      showAlert("Puzzle Solved!", "The grid is fully solved!");
+                      setInteractiveSolved(true);
+                    } else {
+                      showAlert("No Clue Found", "Could not generate a clue with these constraints.");
+                    }
+                  }
+                  if (result.solved) {
+                    setInteractiveSolved(true);
+                    if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
+                  }
+                }}
+                disabled={interactiveSolved || nextClueConstraints.length === 0}
+                style={{
+                  flex: 1,
+                  padding: '10px 20px',
+                  backgroundColor: '#8ec07c',
+                  color: '#282828',
+                  border: 'none',
+                  borderRadius: '5px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  opacity: (interactiveSolved || nextClueConstraints.length === 0) ? 0.5 : 1
+                }}
+              >
+                {interactiveSolved ? 'Session Complete' : 'Generate Next Clue'}
+              </button>
+
+              {/* Undo Button */}
+              <button
+                onClick={() => {
+                  const result = session.rollbackLastClue();
+                  if (result.success) {
+                    const newProof = puzzle.proofChain.slice(0, -1);
+                    const newClues = puzzle.clues.slice(0, -1);
+                    setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                    setInteractiveSolved(false);
+                    if (newProof.length === 0) {
+                      setSelectedStep(-2);
+                    } else if (selectedStep >= newProof.length) {
+                      setSelectedStep(newProof.length - 1);
+                    }
+                  }
+                }}
+                disabled={puzzle.proofChain.length === 0}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#d3869b',
+                  color: '#282828',
+                  border: 'none',
+                  borderRadius: '5px',
+                  fontWeight: 'bold',
+                  cursor: puzzle.proofChain.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: puzzle.proofChain.length === 0 ? 0.5 : 1
+                }}
+              >
+                Undo Last
+              </button>
             </div>
 
-            <button
-              onClick={() => {
-                const result = session.getNextClue({
-                  allowedClueTypes: nextClueConstraints,
-                  includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
-                  excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
-                  minDeductions: minDeductionsInput
-                });
-
-                if (result.clue) {
-                  // Append to puzzle state
-                  // Use 'any' cast for proof step compatibility since we just need the clue for App.tsx replay logic
-                  const newStep = { clue: result.clue } as any;
-                  const newProof = [...puzzle.proofChain, newStep];
-                  const newClues = [...puzzle.clues, result.clue];
-
-                  setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                  // Auto-advance scrubber
-                  setSelectedStep(newProof.length - 1);
-                } else {
-                  if (result.solved) {
-                    showAlert("Puzzle Solved!", "The grid is fully solved!");
-                    setInteractiveSolved(true);
-                  } else {
-                    showAlert("No Clue Found", "Could not generate a clue with these constraints.");
-                  }
-                }
-                if (result.solved) {
-                  setInteractiveSolved(true);
-                  if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
-                }
-              }}
-              disabled={interactiveSolved || nextClueConstraints.length === 0}
-              style={{ padding: '10px 20px', backgroundColor: '#8ec07c', color: '#282828', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer', opacity: (interactiveSolved || nextClueConstraints.length === 0) ? 0.5 : 1 }}
-            >
-              {interactiveSolved ? 'Session Complete' : 'Generate Next Clue'}
-            </button>
-            <button
-              onClick={() => {
-                const result = session.rollbackLastClue();
-                if (result.success) {
-                  const newProof = puzzle.proofChain.slice(0, -1);
-                  const newClues = puzzle.clues.slice(0, -1);
-                  setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                  setInteractiveSolved(false);
-                  // Move scrubber back logic
-                  if (newProof.length === 0) {
-                    // If no clues left, go to step 0 (empty grid)
-                    setSelectedStep(-2);
-                  } else if (selectedStep >= newProof.length) {
-                    // If we were at the end, clamp to new end
-                    setSelectedStep(newProof.length - 1);
-                  }
-                }
-              }}
-              disabled={puzzle.proofChain.length === 0}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#d3869b',
-                color: '#282828',
-                border: 'none',
-                borderRadius: '5px',
-                fontWeight: 'bold',
-                cursor: puzzle.proofChain.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: puzzle.proofChain.length === 0 ? 0.5 : 1,
-                marginLeft: '10px'
-              }}
-            >
-              Undo Last
-            </button>
+            {/* Search Results Panel */}
+            {isSearchOpen && (
+              <div style={{
+                maxHeight: '300px',
+                overflowY: 'auto',
+                backgroundColor: '#1d2021',
+                border: '1px solid #3c3836',
+                borderRadius: '6px',
+                padding: '10px',
+                marginBottom: '15px'
+              }}>
+                {searchResults.length === 0 ? (
+                  <div style={{ padding: '20px', textAlign: 'center', color: '#665c54', fontStyle: 'italic' }}>
+                    No matching clues found. Try relaxing constraints.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {searchResults.map((item, idx) => (
+                      <div key={idx} style={{
+                        display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '15px', padding: '8px',
+                        backgroundColor: item.isDirectAnswer ? '#1d2021' : '#282828',
+                        borderRadius: '4px',
+                        border: item.isDirectAnswer ? '1px dashed #fb4934' : '1px solid #333',
+                        opacity: item.isDirectAnswer ? 0.7 : 1
+                      }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontSize: '0.9em', color: item.isDirectAnswer ? '#fb4934' : '#dbdbdb', lineHeight: '1.4' }}>{renderPlainLanguageClue(item.clue, categories)}</span>
+                          {item.isDirectAnswer && <span style={{ fontSize: '0.75em', color: '#cc241d', fontStyle: 'italic' }}>⚠️ Direct Answer</span>}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
+                          <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
+                          <span title="Deductions">Ded: <span style={{ color: '#98971a' }}>{item.deductions}</span></span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            const result = session?.useClue(item.clue);
+                            if (result && session && puzzle) {
+                              const newStep = { clue: item.clue } as any;
+                              const newProof = [...puzzle.proofChain, newStep];
+                              const newClues = [...puzzle.clues, item.clue];
+                              setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                              setSelectedStep(newProof.length - 1);
+                              if (result.solved) {
+                                showAlert("Puzzle Solved!", "The grid is fully solved!");
+                                setInteractiveSolved(true);
+                              }
+                            }
+                          }}
+                          disabled={item.isDirectAnswer}
+                          style={{
+                            padding: '4px 10px',
+                            backgroundColor: item.isDirectAnswer ? '#3c3836' : '#689d6a',
+                            color: item.isDirectAnswer ? '#7c6f64' : '#282828',
+                            border: 'none',
+                            borderRadius: '3px',
+                            cursor: item.isDirectAnswer ? 'not-allowed' : 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '0.8em'
+                          }}
+                        >
+                          {item.isDirectAnswer ? 'Solved' : 'Add'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
+        )
+        }
 
         {/* Interactive Clue Scrubber */}
         <div className="clue-list" style={{ padding: '0' }}>
@@ -2021,7 +2016,7 @@ function App() {
             Reset All
           </button>
         </div>
-      </div>
+      </div >
     );
   };
 
