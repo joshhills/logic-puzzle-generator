@@ -25,31 +25,31 @@ const generateDefaultCategories = (nCats: number, nItems: number): AppCategoryCo
       id: 'Suspect',
       values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White'],
       type: CategoryType.NOMINAL,
-      labels: { groupName: 'suspect', verb: 'is', includeGroupName: true, valuePrefix: '' }
+      labels: { groupName: 'suspect', verb: 'was', includeGroupName: true, valuePrefix: '', subjectPrefix: 'the suspect', verbNegated: 'was not', isPossessive: false }
     },
     {
       id: 'Weapon',
       values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench'],
       type: CategoryType.NOMINAL,
-      labels: { groupName: 'weapon', verb: 'has', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the person with the' }
+      labels: { groupName: 'weapon', verb: 'was', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the suspect with the', verbNegated: 'was not', isPossessive: true }
     },
     {
       id: 'Room',
       values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study'],
       type: CategoryType.NOMINAL,
-      labels: { groupName: 'room', verb: 'is in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'is not in', subjectPrefix: 'the person in the' }
+      labels: { groupName: 'room', verb: 'was in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'was not in', subjectPrefix: 'the suspect in the', isPossessive: false }
     },
     {
       id: 'Gold',
       values: ['10', '20', '30', '40', '50', '60'],
       type: CategoryType.ORDINAL,
-      labels: { groupName: 'gold', verb: 'has', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', subjectPrefix: 'the person with', valueSuffix: 'gold' }
+      labels: { groupName: 'gold', verb: 'had', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', superlativeFirst: 'least', superlativeLast: 'most', subjectPrefix: 'the suspect with', valueSuffix: 'gold', verbNegated: 'did not have', isPossessive: false }
     },
     {
       id: 'Motive',
       values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage'],
       type: CategoryType.NOMINAL,
-      labels: { groupName: 'motive', verb: 'is', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the person whose motive is' }
+      labels: { groupName: 'motive', verb: 'was', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the suspect whose motive was', verbNegated: 'was not' }
     }
   ];
 
