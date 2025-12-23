@@ -151,7 +151,7 @@ function App() {
       });
       setSearchResults(results);
     }
-  }, [isInteractiveMode, session, isSearchOpen, nextClueConstraints, includeSubjectsInput, excludeSubjectsInput, minDeductionsInput]);
+  }, [isInteractiveMode, session, isSearchOpen, nextClueConstraints, includeSubjectsInput, excludeSubjectsInput, minDeductionsInput, puzzle]);
 
   // Countdown Timer
   useEffect(() => {

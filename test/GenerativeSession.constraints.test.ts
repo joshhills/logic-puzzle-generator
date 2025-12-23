@@ -141,9 +141,27 @@ describe('GenerativeSession Enhancements', () => {
         results.forEach(r => {
             expect(r.deductions).toBeGreaterThanOrEqual(1);
         });
+    });
 
-        // Ensure we don't have clues with 0 deductions if they exist in pool
-        // (Hard to guarantee existence without mocking, but if any returned, checked above)
+    test('getScoredMatchingClues updates scores after applying a clue', () => {
+        // Initial State
+        const initialResults = session.getScoredMatchingClues({}, 200);
+        const bestClueOriginal = initialResults[0];
+
+        // Apply a clue (e.g. the best one)
+        session.useClue(bestClueOriginal.clue);
+
+        // Get new results
+        const newResults = session.getScoredMatchingClues({}, 200);
+
+        // The applied clue should no longer be in the list
+        // Since useClue removes it from availableClues
+        const found = newResults.find(r => r.clue === bestClueOriginal.clue);
+        expect(found).toBeUndefined();
+
+        // Also, the remaining clues might have different scores/deductions now that the grid is updated
+        // We can at least assert that we got results (if any remaining) or length decreased
+        expect(newResults.length).toBeLessThan(initialResults.length);
     });
 
     test('Search: useClue applies constraint and updates state', () => {

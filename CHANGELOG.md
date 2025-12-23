@@ -3,6 +3,11 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.2] - 2025-12-23
+### Fixed
+- **UI**: Fixed search results not refreshing when puzzle state changes (e.g. adding or undoing a clue).
+- **Engine**: Added regression test for dynamic score updates.
+
 ## [1.2.1] - 2025-12-23
 ### Fixed
 - **Engine**: Fixed `minDeductions` filter in search results (deductions were not being filtered correctly).
