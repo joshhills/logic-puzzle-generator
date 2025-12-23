@@ -1,8 +1,5 @@
 {
-  "name": "@joshhills/logic-puzzle-generator",
-  "publishConfig": {
-    "access": "public"
-  },
+  "name": "logic-puzzle-generator",
   "version": "1.1.1",
   "description": "A headless, TypeScript-based Logic Grid Puzzle Engine.",
   "main": "dist/src/index.js",
