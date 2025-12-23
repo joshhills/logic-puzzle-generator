@@ -39,4 +39,4 @@ jobs:
 
       - name: Publish to NPM
         if: steps.check_version.outputs.is-new-version == 'true'
-        run: npm publish --provenance
+        run: npm publish --provenance --access public
