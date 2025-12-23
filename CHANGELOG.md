@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.1.7] (2025-12-23)
+
+### Fixes
+* **Release:** Simplified `repository` field to GitHub shorthand to ensure provenance matching.
+
 ## [1.1.6] (2025-12-23)
 
 ### Fixes
