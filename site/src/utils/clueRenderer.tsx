@@ -60,7 +60,7 @@ export const renderPlainLanguageClue = (clue: Clue, cats: AppCategoryConfig[]) =
 
             const isOrdinalValue = c2?.type === CategoryType.ORDINAL;
             const verb = c2?.labels?.verb || 'is';
-            const suffix = isOrdinalValue ? ` ${c2?.labels?.groupName || c2?.id.toLowerCase()}` : '';
+            const suffix = (isOrdinalValue && !c2?.labels?.valueSuffix) ? ` ${c2?.labels?.groupName || c2?.id.toLowerCase()}` : '';
 
             if (c2?.labels?.isPossessive) {
                 const groupName = c2.labels.groupName || c2.id.toLowerCase();
