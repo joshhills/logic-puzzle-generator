@@ -296,8 +296,7 @@ The library uses specific error types to help you debug configuration issues.
 
 | Method | Throws | Reason |
 | :--- | :--- | :--- |
-| Method | Throws | Reason |
-| :--- | :--- | :--- |
+
 | `new Generator()` | `Error` | If `seed` is invalid (NaN). |
 | `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
 | `startSession()` | `ConfigurationError` | - Less than 2 categories. |
