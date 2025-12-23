@@ -1,8 +1,21 @@
+```
 # Changelog
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.1.9] (2025-12-23)
+## [1.2.0] - 2025-12-23
+### Added
+- **Engine**: Scored Search API (`getScoredMatchingClues`) returning heuristic scores and deduction counts.
+- **Engine**: Direct Answer detection (`isDirectAnswer`) to identify clues that reveal the target fact.
+- **Engine**: Public methods for clue counting (`getTotalClueCount`, `getMatchingClueCount`) and manual application (`useClue`).
+- **UI**: Interactive Search Panel with live reactivity and spoiler protection.
+- **UI**: Visual indicators for key clues.
+
+## [1.1.9] - 2024-05-24
+
+### Features
+* **Engine:** Added `includeSubjects`, `excludeSubjects`, and `minDeductions` constraints to `GenerativeSession`.
+* **Game Support:** Enabled advanced mechanics (questioning specific suspects, filler clues).
 
 ### Fixes
 * **Release:** Updated CI to use Node.js 24 to ensure npm >= 11.5.1 for trusted publishing compatibility.

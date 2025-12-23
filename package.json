@@ -1,6 +1,6 @@
 {
   "name": "logic-puzzle-generator",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"

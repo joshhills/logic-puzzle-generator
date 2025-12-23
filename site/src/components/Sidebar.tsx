@@ -18,6 +18,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ currentStep, steps, onStepSelect, maxReachableStep = 99, onReset, canReset = true, onExport, onImport, onSave, onManageSaves, onInfo, isDirty = true }) => {
     return (
         <div className="sidebar" role="navigation" aria-label="Main Navigation">
+            <div style={{ padding: '0 20px 20px', color: '#666', fontSize: '0.8em', textAlign: 'center' }}>v1.2.0</div>
             <div style={{ marginBottom: '30px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <img src="./logic-puzzle-generator-logo.png" alt="Logo" style={{ width: '32px', height: '32px', borderRadius: '4px' }} />
                 <h2 style={{ fontSize: '1.2rem', fontWeight: 'bold', margin: 0, lineHeight: '1.2' }}>Logic Puzzle<br />Generator</h2>

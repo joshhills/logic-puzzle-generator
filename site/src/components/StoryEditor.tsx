@@ -91,12 +91,12 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                         <input
                                             type="text"
                                             value={cat.labels?.subjectPrefix || ''}
-                                            placeholder="e.g. the person with"
+                                            placeholder="e.g. the suspect with"
                                             onChange={(e) => onLabelChange(i, 'subjectPrefix', e.target.value)}
                                             style={{ width: '100%', boxSizing: 'border-box', padding: '10px', fontSize: '0.85em', borderRadius: '4px', border: '1px solid #555', backgroundColor: '#222', color: '#fff' }}
                                         />
                                     </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 150px' }}>
                                         <label style={{ display: 'block', fontSize: '0.7em', color: '#888', marginBottom: '4px' }}>Negated verb (optional)</label>
                                         <input
                                             type="text"
@@ -215,6 +215,41 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                                         <div style={{ fontSize: '0.85em', padding: '8px', backgroundColor: '#1a1a1a', borderRadius: '4px', borderLeft: '3px solid #10b981' }}>
                                                             <span style={{ fontSize: '0.75em', color: '#555', marginRight: '8px' }}>AS OBJECT:</span>
                                                             <span style={{ color: '#aaa' }}>{renderPlainLanguageClue(objClue, categories)}</span>
+                                                        </div>
+                                                    </>
+                                                );
+                                            })()}
+                                            {isOrdinal && (() => {
+                                                const otherCat = categories.find(other => other.id !== cat.id) || categories[0];
+                                                // Ordinal Comparison (Less Than)
+                                                const ordClue: Clue = {
+                                                    type: ClueType.ORDINAL,
+                                                    operator: OrdinalOperator.LESS_THAN,
+                                                    item1Cat: otherCat.id,
+                                                    item1Val: otherCat.values[0],
+                                                    item2Cat: otherCat.id,
+                                                    item2Val: otherCat.values[1],
+                                                    ordinalCat: cat.id
+                                                };
+
+                                                // Superlative (Max)
+                                                const supClue: Clue = {
+                                                    type: ClueType.SUPERLATIVE,
+                                                    operator: SuperlativeOperator.MAX,
+                                                    targetCat: otherCat.id,
+                                                    targetVal: otherCat.values[0],
+                                                    ordinalCat: cat.id
+                                                };
+
+                                                return (
+                                                    <>
+                                                        <div style={{ fontSize: '0.85em', padding: '8px', backgroundColor: '#1a1a1a', borderRadius: '4px', borderLeft: '3px solid #f59e0b' }}>
+                                                            <span style={{ fontSize: '0.75em', color: '#555', marginRight: '8px' }}>COMPARISON:</span>
+                                                            <span style={{ color: '#aaa' }}>{renderPlainLanguageClue(ordClue, categories)}</span>
+                                                        </div>
+                                                        <div style={{ fontSize: '0.85em', padding: '8px', backgroundColor: '#1a1a1a', borderRadius: '4px', borderLeft: '3px solid #ef4444' }}>
+                                                            <span style={{ fontSize: '0.75em', color: '#555', marginRight: '8px' }}>SUPERLATIVE:</span>
+                                                            <span style={{ color: '#aaa' }}>{renderPlainLanguageClue(supClue, categories)}</span>
                                                         </div>
                                                     </>
                                                 );

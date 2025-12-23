@@ -3,6 +3,7 @@ import { CategoryType } from '../../../src/index';
 import { AppCategoryConfig, CategoryLabels } from '../types';
 import { Clue, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter } from '../../../src/index';
 import { renderPlainLanguageClue } from '../utils/clueRenderer';
+import { APP_DEFAULTS } from '../defaults';
 
 interface CategoryEditorProps {
     originalCategories: AppCategoryConfig[];
@@ -255,13 +256,7 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
         const nItems = newCats[0]?.values.length || 4;
 
         // Smart Defaults (Cluedo-esque)
-        const defaults = [
-            { id: 'Suspect', values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White', 'Rose', 'Peach', 'Brunette', 'Grey'], labels: { groupName: 'suspect', verb: 'is', includeGroupName: true, valuePrefix: '' } as CategoryLabels },
-            { id: 'Weapon', values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench', 'Poison', 'Horseshoe', 'Axe', 'Bat'], labels: { groupName: 'weapon', verb: 'has', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the person with the' } as CategoryLabels },
-            { id: 'Room', values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study', 'Library', 'Billiard', 'Conservatory', 'Cellar'], labels: { groupName: 'room', verb: 'is in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'is not in', subjectPrefix: 'the person in the' } as CategoryLabels },
-            { id: 'Gold', values: ['10', '20', '30', '40', '50', '60', '70', '80', '90', '100'], type: CategoryType.ORDINAL, labels: { groupName: 'gold', verb: 'has', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', subjectPrefix: 'the person with', valueSuffix: 'gold' } as CategoryLabels },
-            { id: 'Motive', values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage', 'Love', 'Blackmail', 'Accident', 'Madness'], labels: { groupName: 'motive', verb: 'is', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the person whose motive is' } as CategoryLabels }
-        ];
+        const defaults = APP_DEFAULTS;
 
         // Try to find a default that isn't already used (by ID)
         // Or just based on index... index is easier but if user deleted #2 and adds new, they get #3?
@@ -316,51 +311,64 @@ export const CategoryEditor: React.FC<CategoryEditorProps> = ({ originalCategori
         if (currentCount >= MAX_ITEMS) return;
 
         const newCats = draftCategories.map(cat => {
-            let newValue: string | number = `Item ${cat.values.length + 1}`;
+            const nextIdx = cat.values.length;
+            let newValue: string | number | undefined;
 
-            if (cat.type === CategoryType.ORDINAL) {
-                // Try to deduce next value
-                const nums = cat.values.map(v => Number(v)).filter(n => !isNaN(n));
-                if (nums.length > 0) {
-                    // Simple heuristic: arithmetic progression or just max + step?
-                    // Let's just find the max and add the difference of the last two, or default 10.
-                    const max = Math.max(...nums);
-                    const last = Number(cat.values[cat.values.length - 1]);
-                    const secondLast = Number(cat.values[cat.values.length - 2]);
+            // 1. Try to find a default value from themed config
+            const defaultDef = APP_DEFAULTS.find(d => d.id === cat.id);
+            if (defaultDef && defaultDef.values[nextIdx]) {
+                newValue = defaultDef.values[nextIdx];
+            }
 
-                    let step = 1;
-                    if (!isNaN(last) && !isNaN(secondLast)) {
-                        step = last - secondLast;
-                    } else if (!isNaN(last) && last >= 10) {
-                        step = 10; // Default step 10 for 10,20,30
-                    }
+            // 2. If no default found, use heuristics
+            if (newValue === undefined) {
+                if (cat.type === CategoryType.ORDINAL) {
+                    // Try to deduce next value
+                    const nums = cat.values.map(v => Number(v)).filter(n => !isNaN(n));
+                    if (nums.length > 0) {
+                        // Simple heuristic: arithmetic progression or just max + step?
+                        // Let's just find the max and add the difference of the last two, or default 10.
+                        const max = Math.max(...nums);
+                        const last = Number(cat.values[cat.values.length - 1]);
+                        const secondLast = Number(cat.values[cat.values.length - 2]);
 
-                    if (cat.displayType === 'date') {
-                        // Date Logic
-                        // If previous was a date, add 1 day (86400000ms)
-                        const lastDate = new Date(last);
-                        if (!isNaN(lastDate.getTime())) {
-                            newValue = last + 86400000;
-                        } else {
-                            // Fallback to today
-                            newValue = new Date().getTime();
+                        let step = 1;
+                        if (!isNaN(last) && !isNaN(secondLast)) {
+                            step = last - secondLast;
+                        } else if (!isNaN(last) && last >= 10) {
+                            step = 10; // Default step 10 for 10,20,30
                         }
+
+                        if (cat.displayType === 'date') {
+                            // Date Logic
+                            // If previous was a date, add 1 day (86400000ms)
+                            const lastDate = new Date(last);
+                            if (!isNaN(lastDate.getTime())) {
+                                newValue = last + 86400000;
+                            } else {
+                                // Fallback to today
+                                newValue = new Date().getTime();
+                            }
+                        } else {
+                            // Number Logic
+                            newValue = last + (step > 0 ? step : 1);
+                        }
+                    } else if (cat.displayType === 'date') {
+                        // No valid dates yet, start with today
+                        newValue = new Date().setHours(0, 0, 0, 0);
                     } else {
-                        // Number Logic
-                        newValue = last + (step > 0 ? step : 1);
+                        // No valid numbers yet, start with 10
+                        newValue = 10;
                     }
-                } else if (cat.displayType === 'date') {
-                    // No valid dates yet, start with today
-                    newValue = new Date().setHours(0, 0, 0, 0);
                 } else {
-                    // No valid numbers yet, start with 10
-                    newValue = 10;
+                    // NOMINAL fallback
+                    newValue = `Item ${nextIdx + 1}`;
                 }
             }
 
             return {
                 ...cat,
-                values: [...cat.values, newValue]
+                values: [...cat.values, newValue!]
             };
         });
 

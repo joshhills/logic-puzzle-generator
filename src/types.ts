@@ -94,6 +94,20 @@ export interface ClueGenerationConstraints {
      * Use this to control difficulty or puzzle attributes.
      */
     allowedClueTypes?: ClueType[];
+    /**
+     * If provided, only clues that refer to these specific values (as subjects or objects) will be generated.
+     * Useful for "Ask this suspect" mechanics.
+     */
+    includeSubjects?: string[];
+    /**
+     * If provided, clues referring to these values will be excluded.
+     */
+    excludeSubjects?: string[];
+    /**
+     * Minimum number of new deductions this clue must provide to be considered valid.
+     * Default is 0 (allow all clues). Set to 1 to ensure progress.
+     */
+    minDeductions?: number;
 
     // Future extension points:
     // allowedBinaryOperators?: BinaryOperator[];

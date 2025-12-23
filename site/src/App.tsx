@@ -15,43 +15,14 @@ import { StoryEditor } from './components/StoryEditor';
 // Steps: 0=Structure, 1=Story, 2=Goal, 3=Generate, 4=Solution
 const STEPS = ['Structure', 'Story', 'Goal', 'Generate', 'Solution'];
 
+import { APP_DEFAULTS } from './defaults';
+
 // Helper to generate defaults
 const generateDefaultCategories = (nCats: number, nItems: number): AppCategoryConfig[] => {
   const newCats: AppCategoryConfig[] = [];
 
-  // Cluedo-esque Defaults
-  const defaults = [
-    {
-      id: 'Suspect',
-      values: ['Mustard', 'Plum', 'Green', 'Peacock', 'Scarlett', 'White'],
-      type: CategoryType.NOMINAL,
-      labels: { groupName: 'suspect', verb: 'was', includeGroupName: true, valuePrefix: '', subjectPrefix: 'the suspect', verbNegated: 'was not', isPossessive: false }
-    },
-    {
-      id: 'Weapon',
-      values: ['Dagger', 'Candlestick', 'Revolver', 'Rope', 'Pipe', 'Wrench'],
-      type: CategoryType.NOMINAL,
-      labels: { groupName: 'weapon', verb: 'was', includeGroupName: false, valuePrefix: 'the', subjectPrefix: 'the suspect with the', verbNegated: 'was not', isPossessive: true }
-    },
-    {
-      id: 'Room',
-      values: ['Hall', 'Lounge', 'Dining', 'Kitchen', 'Ballroom', 'Study'],
-      type: CategoryType.NOMINAL,
-      labels: { groupName: 'room', verb: 'was in', includeGroupName: false, valuePrefix: 'the', verbNegated: 'was not in', subjectPrefix: 'the suspect in the', isPossessive: false }
-    },
-    {
-      id: 'Gold',
-      values: ['10', '20', '30', '40', '50', '60'],
-      type: CategoryType.ORDINAL,
-      labels: { groupName: 'gold', verb: 'had', includeGroupName: false, valuePrefix: '', ordinalBefore: 'fewer', ordinalAfter: 'more', superlativeFirst: 'least', superlativeLast: 'most', subjectPrefix: 'the suspect with', valueSuffix: 'gold', verbNegated: 'did not have', isPossessive: false }
-    },
-    {
-      id: 'Motive',
-      values: ['Revenge', 'Greed', 'Jealousy', 'Power', 'Fear', 'Rage'],
-      type: CategoryType.NOMINAL,
-      labels: { groupName: 'motive', verb: 'was', includeGroupName: false, valuePrefix: '', isPossessive: true, subjectPrefix: 'the suspect whose motive was', verbNegated: 'was not' }
-    }
-  ];
+  // Cluedo-esque Defaults (from shared config)
+  const defaults = APP_DEFAULTS;
 
   for (let c = 0; c < nCats; c++) {
     const def = defaults[c];
@@ -77,7 +48,7 @@ const generateDefaultCategories = (nCats: number, nItems: number): AppCategoryCo
 };
 
 // --- Persistence Config ---
-const DATA_VERSION = 2;
+const DATA_VERSION = 5;
 const STORAGE_KEY = 'logic_puzzle_state';
 
 function App() {
@@ -122,9 +93,9 @@ function App() {
   const [puzzleTitle, setPuzzleTitle] = useState<string>('');
 
   // Target Fact Selection
-  const [targetCat1Idx, setTargetCat1Idx] = useState(0);
+  const [targetCat1Idx, setTargetCat1Idx] = useState(1);
   const [targetVal1Idx, setTargetVal1Idx] = useState(0);
-  const [targetCat2Idx, setTargetCat2Idx] = useState(1);
+  const [targetCat2Idx, setTargetCat2Idx] = useState(0);
 
   const [useSpecificGoal, setUseSpecificGoal] = useState(true);
 
@@ -142,7 +113,12 @@ function App() {
   const [session, setSession] = useState<GenerativeSession | null>(null);
 
   const [interactiveSolved, setInteractiveSolved] = useState(false);
-  const [nextClueConstraints, setNextClueConstraints] = useState<ClueType[]>([]); // Subset of allowed? or separate?
+  const [nextClueConstraints, setNextClueConstraints] = useState<ClueType[]>([]);
+  const [includeSubjectsInput, setIncludeSubjectsInput] = useState<string[]>([]);
+  const [excludeSubjectsInput, setExcludeSubjectsInput] = useState<string[]>([]);
+  const [minDeductionsInput, setMinDeductionsInput] = useState<number>(1);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, isDirectAnswer: boolean }[]>([]);
   // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
 
   // --- Step 3: Solution State ---
@@ -164,6 +140,19 @@ function App() {
   // UI State
   const [isGenerating, setIsGenerating] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
+  // Live Search Update
+  useEffect(() => {
+    if (isInteractiveMode && isSearchOpen && session) {
+      const results = session.getScoredMatchingClues({
+        allowedClueTypes: nextClueConstraints,
+        includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+        excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+        minDeductions: minDeductionsInput
+      });
+      setSearchResults(results);
+    }
+  }, [isInteractiveMode, session, isSearchOpen, nextClueConstraints, includeSubjectsInput, excludeSubjectsInput, minDeductionsInput]);
+
   // Countdown Timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -1078,7 +1067,6 @@ function App() {
                   onChange={e => {
                     const newVal = Number(e.target.value);
                     setTargetCat1Idx(newVal);
-                    if (newVal === targetCat2Idx) setTargetCat2Idx(targetCat1Idx);
                   }}
                   style={{
                     padding: '8px',
@@ -1130,7 +1118,6 @@ function App() {
                   onChange={e => {
                     const newVal = Number(e.target.value);
                     setTargetCat2Idx(newVal);
-                    if (newVal === targetCat1Idx) setTargetCat1Idx(targetCat2Idx);
                   }}
                   style={{
                     padding: '8px',
@@ -1156,6 +1143,12 @@ function App() {
             ) : (
               <div style={{ color: '#aaa', fontStyle: 'italic' }}>Figure out the whole board.</div>
             )}
+
+            {useSpecificGoal && targetCat1Idx === targetCat2Idx && (
+              <div style={{ marginTop: '10px', color: '#ef4444', fontSize: '0.9em' }}>
+                Error: The target category and the grouping category must be different.
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '30px', gap: '12px' }}>
@@ -1178,9 +1171,22 @@ function App() {
             </button>
             <button
               onClick={() => setActiveStep(3)}
-              style={{ padding: '12px 24px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
-              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#2563eb'}
-              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#3b82f6'}
+              disabled={useSpecificGoal && targetCat1Idx === targetCat2Idx}
+              style={{
+                padding: '12px 24px',
+                backgroundColor: '#3b82f6',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                cursor: (useSpecificGoal && targetCat1Idx === targetCat2Idx) ? 'not-allowed' : 'pointer',
+                opacity: (useSpecificGoal && targetCat1Idx === targetCat2Idx) ? 0.5 : 1,
+                display: 'flex', alignItems: 'center', gap: '8px',
+                transition: 'all 0.2s',
+                boxShadow: '0 4px 6px -1px rgba(59, 130, 246, 0.5)'
+              }}
+              onMouseEnter={(e) => { if (!(useSpecificGoal && targetCat1Idx === targetCat2Idx)) e.currentTarget.style.backgroundColor = '#2563eb'; }}
+              onMouseLeave={(e) => { if (!(useSpecificGoal && targetCat1Idx === targetCat2Idx)) e.currentTarget.style.backgroundColor = '#3b82f6'; }}
             >
               Continue to Generate
               <span>&rarr;</span>
@@ -1319,7 +1325,7 @@ function App() {
                               let newAllowed = e.target.checked ? [...allowedClueTypes, opt.type] : allowedClueTypes.filter(t => t !== opt.type);
                               const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
                               const hasStrong = newAllowed.some(t => strongTypes.includes(t));
-                              if (newAllowed.length > 0 && !hasStrong) {
+                              if (newAllowed.length === 0 || !hasStrong) {
                                 showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one identity-resolving clue type (Core Clues).");
                                 return;
                               }
@@ -1545,34 +1551,285 @@ function App() {
         </div>
 
         {isInteractiveMode && session && (
-          <div style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
-            <h4 style={{ marginTop: 0, marginBottom: '10px', color: '#d5c4a1' }}>Generation Controls</h4>
-            <div style={{ marginBottom: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-              {allowedClueTypes.map(type => {
-                const isOrdinalType = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL].includes(type);
-                const hasOrdinalCategory = categories.some(c => c.type === CategoryType.ORDINAL);
-                const isDisabled = isOrdinalType && !hasOrdinalCategory;
-
-                return (
-                  <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
-                    <input
-                      type="checkbox"
-                      checked={nextClueConstraints.includes(type)}
-                      disabled={isDisabled}
-                      onChange={(e) => {
-                        if (isDisabled) return;
-                        if (e.target.checked) setNextClueConstraints([...nextClueConstraints, type]);
-                        else setNextClueConstraints(nextClueConstraints.filter(t => t !== type));
-                      }}
-                    />
-                    {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>(Req. Ordinal)</span>}
-                  </label>
-                );
-              })}
+          <div className="print-hide" style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h4 style={{ margin: 0, color: '#d5c4a1' }}>Generation Controls</h4>
+              <span style={{ fontSize: '0.8em', color: '#888' }}>Total Remaining: {session.getTotalClueCount()}</span>
             </div>
+            <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+              {[
+                { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
+              ].map((group) => (
+                <div key={group.title} style={{ minWidth: '200px' }}>
+                  <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '8px', fontWeight: 'bold' }}>{group.title}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    {group.types.map(type => {
+                      const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+                      const hasValidUnaryCategory = categories.some(cat => {
+                        if (cat.type !== CategoryType.ORDINAL) return false;
+                        const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                        const hasOdd = numericValues.some(v => v % 2 !== 0);
+                        const hasEven = numericValues.some(v => v % 2 === 0);
+                        return hasOdd && hasEven;
+                      });
+
+                      let isDisabled = false;
+                      let disabledReason = '';
+
+                      if (type === ClueType.CROSS_ORDINAL) {
+                        if (ordinalCount < 2) {
+                          isDisabled = true;
+                          disabledReason = '(Req. 2+ Ordinal Cats)';
+                        }
+                      } else if (type === ClueType.UNARY) {
+                        if (!hasValidUnaryCategory) {
+                          isDisabled = true;
+                          disabledReason = '(Req. Mixed Odd/Even)';
+                        }
+                      } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE].includes(type)) {
+                        if (ordinalCount < 1) {
+                          isDisabled = true;
+                          disabledReason = '(Req. Ordinal Cat)';
+                        }
+                      }
+
+                      // Only show types that are globally allowed
+                      if (!allowedClueTypes.includes(type)) return null;
+
+                      const isSelected = nextClueConstraints.includes(type);
+
+                      return (
+                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected && !isDisabled}
+                            disabled={isDisabled}
+                            onChange={(e) => {
+                              if (isDisabled) return;
+                              let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
+
+                              // Validation: Ensure at least one Core type is selected
+                              const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+                              const hasStrong = newAllowed.some(t => strongTypes.includes(t));
+
+                              if (newAllowed.length > 0 && !hasStrong) {
+                                showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one Core Clue type (Binary, Ordinal, etc.) to ensure the puzzle is solvable.");
+                                return;
+                              }
+
+                              setNextClueConstraints(newAllowed);
+                            }}
+                          />
+                          {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>{disabledReason}</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginBottom: '15px', color: '#ccc' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                {/* Include Subjects */}
+                <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include (Whitelist)</div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    {categories.map((cat, i) => (
+                      <div key={i}>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {cat.values.map((val, vIdx) => {
+                            const valStr = String(val);
+                            const isSelected = includeSubjectsInput.includes(valStr);
+                            const isDisabled = excludeSubjectsInput.includes(valStr);
+                            return (
+                              <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#324a3e' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #8ec07c' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isDisabled}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setIncludeSubjectsInput([...includeSubjectsInput, valStr]);
+                                    else setIncludeSubjectsInput(includeSubjectsInput.filter(s => s !== valStr));
+                                  }}
+                                  style={{ display: 'none' }}
+                                />
+                                {valStr}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Exclude Subjects */}
+                <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude (Blacklist)</div>
+                  <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    {categories.map((cat, i) => (
+                      <div key={i}>
+                        <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {cat.values.map((val, vIdx) => {
+                            const valStr = String(val);
+                            const isSelected = excludeSubjectsInput.includes(valStr);
+                            const isDisabled = includeSubjectsInput.includes(valStr);
+                            return (
+                              <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#5a2c2c' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #fb4934' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  disabled={isDisabled}
+                                  onChange={(e) => {
+                                    if (e.target.checked) setExcludeSubjectsInput([...excludeSubjectsInput, valStr]);
+                                    else setExcludeSubjectsInput(excludeSubjectsInput.filter(s => s !== valStr));
+                                  }}
+                                  style={{ display: 'none' }}
+                                />
+                                {valStr}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Min Deductions</span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={minDeductionsInput}
+                    onChange={(e) => setMinDeductionsInput(parseInt(e.target.value) || 0)}
+                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '80px' }}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Inline Search Panel */}
+            <div style={{ marginTop: '20px', borderTop: '1px solid #504945', paddingTop: '15px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ color: '#aaa', fontSize: '0.9em', fontWeight: 'bold' }}>Find Specific Clues</span>
+                <button
+                  onClick={() => {
+                    if (isSearchOpen) {
+                      setIsSearchOpen(false);
+                    } else {
+                      const results = session.getScoredMatchingClues({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput });
+                      setSearchResults(results);
+                      setIsSearchOpen(true);
+                    }
+                  }}
+                  disabled={interactiveSolved}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: isSearchOpen ? '#504945' : '#32302f',
+                    color: isSearchOpen ? '#fff' : '#888',
+                    border: '1px solid #504945',
+                    borderRadius: '4px',
+                    cursor: interactiveSolved ? 'not-allowed' : 'pointer',
+                    fontSize: '0.85em',
+                    transition: 'all 0.2s',
+                    display: 'flex', alignItems: 'center', gap: '6px'
+                  }}
+                >
+                  {isSearchOpen ? 'Hide Search' : 'Show Matching Clues...'}
+                  <span style={{ backgroundColor: '#504945', padding: '1px 5px', borderRadius: '10px', fontSize: '0.8em' }}>
+                    {session.getMatchingClueCount({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput })}
+                  </span>
+                </button>
+              </div>
+
+              {isSearchOpen && (
+                <div style={{
+                  maxHeight: '300px',
+                  overflowY: 'auto',
+                  backgroundColor: '#1d2021',
+                  border: '1px solid #3c3836',
+                  borderRadius: '6px',
+                  padding: '10px',
+                  marginBottom: '15px'
+                }}>
+                  {searchResults.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: '#665c54', fontStyle: 'italic' }}>
+                      No matching clues found. Try relaxing constraints.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {searchResults.map((item, idx) => (
+                        <div key={idx} style={{
+                          display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '15px', padding: '8px',
+                          backgroundColor: item.isDirectAnswer ? '#1d2021' : '#282828',
+                          borderRadius: '4px',
+                          border: item.isDirectAnswer ? '1px dashed #fb4934' : '1px solid #333',
+                          opacity: item.isDirectAnswer ? 0.7 : 1
+                        }}>
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontSize: '0.9em', color: item.isDirectAnswer ? '#fb4934' : '#dbdbdb', lineHeight: '1.4' }}>{renderPlainLanguageClue(item.clue, categories)}</span>
+                            {item.isDirectAnswer && <span style={{ fontSize: '0.75em', color: '#cc241d', fontStyle: 'italic' }}>⚠️ Direct Answer</span>}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
+                            <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
+                            <span title="Deductions">Ded: <span style={{ color: '#98971a' }}>{item.deductions}</span></span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const result = session?.useClue(item.clue);
+                              if (result && session && puzzle) {
+                                const newStep = { clue: item.clue } as any;
+                                const newProof = [...puzzle.proofChain, newStep];
+                                const newClues = [...puzzle.clues, item.clue];
+                                setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                                setSelectedStep(newProof.length - 1);
+                                if (result.solved) {
+                                  showAlert("Puzzle Solved!", "The grid is fully solved!");
+                                  setInteractiveSolved(true);
+                                }
+                              }
+                              // Optional: Keep search open or close it? User probably wants to add more?
+                              // Let's keep it open but maybe refresh results?
+                              // Refreshing is expensive and might shift layout. Let's just remove the used one?
+                              // For now, simple: just keep open.
+                            }}
+                            disabled={item.isDirectAnswer}
+                            style={{
+                              padding: '4px 10px',
+                              backgroundColor: item.isDirectAnswer ? '#3c3836' : '#689d6a',
+                              color: item.isDirectAnswer ? '#7c6f64' : '#282828',
+                              border: 'none',
+                              borderRadius: '3px',
+                              cursor: item.isDirectAnswer ? 'not-allowed' : 'pointer',
+                              fontWeight: 'bold',
+                              fontSize: '0.8em'
+                            }}
+                          >
+                            {item.isDirectAnswer ? 'Solved' : 'Add'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => {
-                const result = session.getNextClue({ allowedClueTypes: nextClueConstraints });
+                const result = session.getNextClue({
+                  allowedClueTypes: nextClueConstraints,
+                  includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+                  excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+                  minDeductions: minDeductionsInput
+                });
+
                 if (result.clue) {
                   // Append to puzzle state
                   // Use 'any' cast for proof step compatibility since we just need the clue for App.tsx replay logic
@@ -1773,7 +2030,7 @@ function App() {
     // Solution (Step 4)
     if (activeStep >= 4) items.push(renderSolutionStep());
 
-    // Generate (Step 3) 
+    // Generate (Step 3)
     if (activeStep >= 3) items.push(renderGenerateStep());
 
     // Goal (Step 2)
@@ -1866,11 +2123,13 @@ function App() {
         isOpen={!!deleteConfirmId}
         onClose={() => setDeleteConfirmId(null)}
         title="Delete Save?"
-        message="Are you sure you want to delete this saved puzzle? This cannot be undone."
+        message="Are you sure you want to delete this save? This cannot be undone."
         onConfirm={confirmDeleteSave}
         type="confirm"
         confirmText="Delete"
       />
+
+
 
       <div className="main-content">
 

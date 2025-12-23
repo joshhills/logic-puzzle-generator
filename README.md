@@ -192,8 +192,11 @@ The main class. Use `new Generator(seed)` to initialize.
     - `options.targetClueCount`: Attempt to find exact solution length. Avoids early termination.
     - `options.maxCandidates`: Performance tuning (default 50). Limits the heuristic search width.
     - `options.timeoutMs`: Abort generation if it exceeds this limit (default 10000ms).
-    - `options.constraints`: Filter allowed clue types.
-        - `allowedClueTypes`: `ClueType[]` (e.g. `[ClueType.BINARY, ClueType.ORDINAL]`).
+    - `options.constraints`: Filter/control generated clues.
+        - `allowedClueTypes`: `ClueType[]`.
+        - `includeSubjects`: `string[]` (New in v1.1.X). Restrict to clues involving these values.
+        - `excludeSubjects`: `string[]` (New in v1.1.X). Exclude clues involving these values.
+        - `minDeductions`: `number` (New in v1.1.X). Min new info required (default 1). Set to 0 for filler.
     - `options.onTrace`: **(Debug)** Callback `(msg: string) => void`. Receives real-time logs about the generation process.
 - `generatePuzzleAsync(...)`: **New in v1.1.0**. Non-blocking version of `generatePuzzle`. Returns `Promise<Puzzle>`.
 - `getClueCountBounds(categories, target)`: Returns plausible Min/Max clue counts.
@@ -233,7 +236,32 @@ The logical engine responsible for applying clues and performing deductions.
 Manages a stateful, step-by-step puzzle generation process.
 - `getNextClue(constraints?)`: Returns `{ clue: Clue | null, remaining: number, solved: boolean }`.
     - Generates and selects the next best clue based on the current grid state.
-    - `constraints`: Optional `ClueGenerationConstraints`.
+    -### `session.getNextClue(options?: ClueGenerationConstraints)`
+
+Generates the next step in the puzzle, returning the best available clue based on internal scoring and provided constraints.
+
+### `session.getTotalClueCount()`
+
+Returns the total number of valid clues remaining in the pool.
+
+### `session.getMatchingClueCount(options?: ClueGenerationConstraints)`
+
+Returns the number of clues that match the current filtering criteria.
+
+### `session.getScoredMatchingClues(options?: ClueGenerationConstraints, limit: number = 50)`
+
+Returns a list of clues matching the constraints, sorted by heuristic score.
+Each result object contains:
+- `clue`: The Clue object.
+- `score`: The calculated helpfulness score.
+- `deductions`: The number of new cell updates this clue provides.
+- `isDirectAnswer`: Boolean indicating if this clue directly reveals the puzzle's goal.
+
+### `session.useClue(clue: Clue)`
+
+Manually applies a specific clue to the board. Useful for interactive search features.
+
+### `session.rollbackLastClue()`: Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
 - `getNextClueAsync(constraints?)`: **New in v1.1.1**. Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
 - `rollbackLastClue()`: Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
 - `getGrid()`: Returns the current `LogicGrid` state.
@@ -277,7 +305,13 @@ let solved = false;
 while (!solved) {
     // 1. Get the next best clue (optionally force a specific type)
     const result = session.getNextClue({ 
-        allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL] 
+    // 1. Get the next best clue (optionally force a specific type)
+    const result = session.getNextClue({ 
+        allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL],
+        includeSubjects: ['Mustard', 'Plum'],     // Only clues about these entities
+        excludeSubjects: ['Revolver'],            // No clues dealing with Revolvers
+        minDeductions: 0                          // Allow "useless" clues (flavor text)
+    });
     });
 
     if (result.clue) {
@@ -296,7 +330,6 @@ The library uses specific error types to help you debug configuration issues.
 
 | Method | Throws | Reason |
 | :--- | :--- | :--- |
-
 | `new Generator()` | `Error` | If `seed` is invalid (NaN). |
 | `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
 | `startSession()` | `ConfigurationError` | - Less than 2 categories. |

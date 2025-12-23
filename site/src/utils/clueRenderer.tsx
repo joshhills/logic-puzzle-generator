@@ -26,7 +26,17 @@ export const formatTerm = (cat: AppCategoryConfig | undefined, val: ValueLabel, 
         );
     }
 
-    const rawPrefix = cat.labels?.valuePrefix || forcePrefix || (isSubject ? 'The' : '');
+    // If valuePrefix is undefined, default to 'The' for subjects, otherwise ''.
+    // If valuePrefix is defined (even as empty string), typically we use it.
+    // BUT 'forcePrefix' overrides all.
+    let rawPrefix = forcePrefix;
+    if (rawPrefix === undefined) {
+        if (cat.labels?.valuePrefix !== undefined) {
+            rawPrefix = cat.labels.valuePrefix;
+        } else {
+            rawPrefix = isSubject ? 'The' : '';
+        }
+    }
     const prefix = isSubject && rawPrefix ? rawPrefix.charAt(0).toUpperCase() + rawPrefix.slice(1) : rawPrefix;
     const groupName = cat.labels?.groupName || cat.id.toLowerCase();
     const includeGroup = cat.labels?.includeGroupName ?? true;
@@ -85,7 +95,7 @@ export const renderPlainLanguageClue = (clue: Clue, cats: AppCategoryConfig[]) =
             const co = cats.find(cat => cat.id === clue.ordinalCat);
 
             const term1 = formatTerm(c1, clue.item1Val, true);
-            const term2 = formatTerm(c2, clue.item2Val, false, 'the');
+            const term2 = formatTerm(c2, clue.item2Val, false);
 
             // If the ordinal category has a specific verb (e.g. Gold has "has"), use it.
             // Otherwise fall back to the subject's default or "is".
@@ -151,7 +161,7 @@ export const renderPlainLanguageClue = (clue: Clue, cats: AppCategoryConfig[]) =
             const co2 = cats.find(cat => cat.id === clue.ordinal2);
 
             const term1 = formatTerm(c1, clue.item1Val, true);
-            const term2 = formatTerm(c2, clue.item2Val, false, 'the');
+            const term2 = formatTerm(c2, clue.item2Val, false);
 
             const group1 = co1?.labels?.groupName || co1?.id.toLowerCase() || 'item';
             const group2 = co2?.labels?.groupName || co2?.id.toLowerCase() || 'item';
