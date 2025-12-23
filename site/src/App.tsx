@@ -1633,7 +1633,7 @@ function App() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
                 {/* Include Subjects */}
                 <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include (Whitelist)</div>
+                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include Subjects (Allowlist)</div>
                   <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                     {categories.map((cat, i) => (
                       <div key={i}>
@@ -1667,7 +1667,7 @@ function App() {
 
                 {/* Exclude Subjects */}
                 <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude (Blacklist)</div>
+                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude Subjects (Disallowlist)</div>
                   <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
                     {categories.map((cat, i) => (
                       <div key={i}>

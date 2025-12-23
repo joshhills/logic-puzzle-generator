@@ -133,6 +133,19 @@ describe('GenerativeSession Enhancements', () => {
         }
     });
 
+    test('getScoredMatchingClues respects minDeductions', () => {
+        // Request clues with at least 1 deduction
+        const results = session.getScoredMatchingClues({ minDeductions: 1 }, 200);
+
+        // All returned clues must have deductions >= 1
+        results.forEach(r => {
+            expect(r.deductions).toBeGreaterThanOrEqual(1);
+        });
+
+        // Ensure we don't have clues with 0 deductions if they exist in pool
+        // (Hard to guarantee existence without mocking, but if any returned, checked above)
+    });
+
     test('Search: useClue applies constraint and updates state', () => {
         const startCount = session.getTotalClueCount();
 

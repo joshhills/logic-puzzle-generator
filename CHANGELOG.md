@@ -3,6 +3,11 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.2.1] - 2025-12-23
+### Fixed
+- **Engine**: Fixed `minDeductions` filter in search results (deductions were not being filtered correctly).
+- **UI**: Renamed "Whitelist/Blacklist" to "Include/Exclude Subjects (Allowlist/Disallowlist)" for clarity.
+
 ## [1.2.0] - 2025-12-23
 ### Added
 - **Engine**: Scored Search API (`getScoredMatchingClues`) returning heuristic scores and deduction counts.

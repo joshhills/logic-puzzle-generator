@@ -83,7 +83,12 @@ export class GenerativeSession {
         // Sort by score descending
         scored.sort((a, b) => b.score - a.score);
 
-        return scored.slice(0, limit);
+        // Filter by minDeductions if provided
+        // Defaults to 0 if undefined (allow all)
+        const minDeductions = constraints?.minDeductions ?? 0;
+        const finalResults = scored.filter(s => s.deductions >= minDeductions);
+
+        return finalResults.slice(0, limit);
     }
 
     public useClue(clue: Clue): { remaining: number, solved: boolean } {
