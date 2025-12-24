@@ -576,6 +576,29 @@ export class Generator {
             if (this.isPuzzleSolved(logicGrid, this.solution, this.reverseSolution)) break;
         }
 
+        // ---------------------------------------------------------
+        // METADATA REPLAY PASS
+        // ---------------------------------------------------------
+        // Re-apply clues to a fresh grid to calculate accurate metadata (deductions, % complete)
+        // for the final solution view.
+        const replayGrid = new LogicGrid(categories);
+        const replayStats = replayGrid.getGridStats();
+        const totalRange = replayStats.totalPossible - replayStats.solutionPossible;
+
+        for (const step of proofChain) {
+            const result = this.solver.applyClue(replayGrid, step.clue);
+            (step.clue as any).deductions = result.deductions;
+
+            const currentStats = replayGrid.getGridStats();
+            const progress = currentStats.totalPossible - currentStats.currentPossible;
+
+            if (totalRange > 0) {
+                (step.clue as any).percentComplete = Math.min(100, Math.max(0, (progress / totalRange) * 100));
+            } else {
+                (step.clue as any).percentComplete = 100;
+            }
+        }
+
         return {
             solution: this.solution,
             clues: proofChain.map(p => p.clue),
@@ -1334,6 +1357,135 @@ export class Generator {
 
         const score = ((synergyScore * complexityBonus) + (completenessScore * 5)) * repetitionPenalty;
         return score;
+    }
+
+
+    /**
+     * Checks if a clue is logically consistent with the provided solution.
+     * Returns true if the clue is TRUE in the context of the solution.
+     * Returns false if the clue is FALSE (contradicts the solution).
+     */
+    public checkClueConsistency(
+        clue: Clue,
+        solution: Solution,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>,
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>>
+    ): boolean {
+        // Helper to get real value
+        const getRealValue = (catId: string, val: ValueLabel, targetCatId: string): ValueLabel | undefined => {
+            const baseVal = reverseSolution.get(catId)?.get(val);
+            if (!baseVal) return undefined;
+            return solution[targetCatId][baseVal];
+        };
+
+        const getBaseValue = (catId: string, val: ValueLabel): ValueLabel | undefined => {
+            return reverseSolution.get(catId)?.get(val);
+        };
+
+        // Helper to get Ordinal Numeric Value
+        const getOrdinalValue = (catId: string, val: ValueLabel, ordinalCatId: string): number | undefined => {
+            const baseVal = getBaseValue(catId, val);
+            if (!baseVal) return undefined;
+            const mappings = valueMap.get(baseVal);
+            if (!mappings) return undefined;
+            const ordVal = mappings[ordinalCatId];
+            return typeof ordVal === 'number' ? ordVal : undefined;
+        };
+
+
+        switch (clue.type) {
+            case ClueType.BINARY: {
+                const b = clue as BinaryClue;
+                const realVal2 = getRealValue(b.cat1, b.val1, b.cat2);
+                if (realVal2 === undefined) return false; // Should not happen in consistent state
+
+                if (b.operator === BinaryOperator.IS) {
+                    return realVal2 === b.val2;
+                } else if (b.operator === BinaryOperator.IS_NOT) {
+                    return realVal2 !== b.val2;
+                }
+                break;
+            }
+            case ClueType.ORDINAL: {
+                const o = clue as OrdinalClue;
+                const v1 = getOrdinalValue(o.item1Cat, o.item1Val, o.ordinalCat);
+                const v2 = getOrdinalValue(o.item2Cat, o.item2Val, o.ordinalCat);
+
+                if (v1 === undefined || v2 === undefined) return false;
+
+                switch (o.operator) {
+                    case OrdinalOperator.GREATER_THAN: return v1 > v2;
+                    case OrdinalOperator.LESS_THAN: return v1 < v2;
+                    case OrdinalOperator.NOT_GREATER_THAN: return v1 <= v2; // Not After
+                    case OrdinalOperator.NOT_LESS_THAN: return v1 >= v2; // Not Before
+                }
+                break;
+            }
+            case ClueType.SUPERLATIVE: {
+                const s = clue as SuperlativeClue;
+                const v = getOrdinalValue(s.targetCat, s.targetVal, s.ordinalCat);
+                if (v === undefined) return false;
+
+                // We need the min/max of the ordinal category
+                // Since we don't have categories passed in directly, we can infer from valueMap or we need categories?
+                // valueMap has all values.
+                // But simpler: we know mappings for ALL items in ordinal cat.
+                // Let's iterate all base values to find min/max for that ordinal cat.
+                let min = Infinity;
+                let max = -Infinity;
+
+                // valueMap keys are baseValues (Category[0] values)
+                for (const baseVal of this.valueMap.keys()) {
+                    const mappings = this.valueMap.get(baseVal);
+                    if (mappings) {
+                        const ov = mappings[s.ordinalCat];
+                        if (typeof ov === 'number') {
+                            if (ov < min) min = ov;
+                            if (ov > max) max = ov;
+                        }
+                    }
+                }
+
+                if (min === Infinity) return false; // No ordinal values found?
+
+                switch (s.operator) {
+                    case SuperlativeOperator.MIN: return v === min;
+                    case SuperlativeOperator.MAX: return v === max;
+                    case SuperlativeOperator.NOT_MIN: return v !== min;
+                    case SuperlativeOperator.NOT_MAX: return v !== max;
+                }
+                break;
+            }
+            case ClueType.UNARY: {
+                const u = clue as UnaryClue;
+                const v = getOrdinalValue(u.targetCat, u.targetVal, u.ordinalCat);
+                if (v === undefined) return false;
+
+                switch (u.filter) {
+                    case UnaryFilter.IS_ODD: return (v % 2 !== 0);
+                    case UnaryFilter.IS_EVEN: return (v % 2 === 0);
+                }
+                break;
+            }
+            case ClueType.CROSS_ORDINAL: {
+                const c = clue as CrossOrdinalClue;
+                const v1 = getOrdinalValue(c.item1Cat, c.item1Val, c.ordinal1);
+                const v2 = getOrdinalValue(c.item2Cat, c.item2Val, c.ordinal2);
+
+                if (v1 === undefined || v2 === undefined) return false;
+
+                const op = c.operator as unknown as number;
+                switch (op) {
+                    case OrdinalOperator.GREATER_THAN: return v1 > v2;
+                    case OrdinalOperator.LESS_THAN: return v1 < v2;
+                    case OrdinalOperator.NOT_GREATER_THAN: return v1 <= v2;
+                    case OrdinalOperator.NOT_LESS_THAN: return v1 >= v2;
+                }
+                break;
+            }
+        }
+
+        return true;
     }
 
     public isPuzzleSolved(

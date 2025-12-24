@@ -439,6 +439,11 @@ export class Solver {
         if (!cat1Config || !cat2Config) return 0;
 
         if (clue.operator === BinaryOperator.IS) {
+            // Count the "Positive Confirmation" (Green Check) as a deduction if it wasn't already known
+            if (grid.getPossibilitiesCount(clue.cat1, clue.val1, clue.cat2) > 1) {
+                deductions++;
+            }
+
             if (grid.isPossible(clue.cat1, clue.val1, clue.cat2, clue.val2)) {
                 // This is not a deduction, but a fact application. Still, we need to eliminate other possibilities.
             }

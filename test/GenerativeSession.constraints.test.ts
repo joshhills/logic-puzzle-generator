@@ -143,6 +143,58 @@ describe('GenerativeSession Enhancements', () => {
         });
     });
 
+    test('getScoredMatchingClues throws error if minDeductions > maxDeductions', () => {
+        expect(() => {
+            session.getScoredMatchingClues({ minDeductions: 2, maxDeductions: 1 }, 10);
+        }).toThrow();
+        // We can be more specific: .toThrow(ConfigurationError) but we need to check if Jest env has the class imported or if we check message
+        // Let's just check it throws for now.
+    });
+
+    test('getScoredMatchingClues respects maxDeductions', () => {
+        // Find a clue with deductions > 0 to establish baseline
+        const allClues = session.getScoredMatchingClues({}, 200);
+        const highDeductionClue = allClues.find(c => c.deductions > 0);
+
+        if (highDeductionClue) {
+            // Request max deductions of 0 (redundant/filler clues only)
+            const results = session.getScoredMatchingClues({ maxDeductions: 0 }, 200);
+            results.forEach(r => {
+                expect(r.deductions).toBe(0);
+            });
+
+            // Ensure high deduction clue is NOT in results
+            // (Note: clue objects are recreated/cloned often, so check by content logic or just trust property check above)
+        }
+    });
+
+    test('getNextClue respects maxDeductions', () => {
+        // Ask for a filler clue (0 deductions)
+        const result = session.getNextClue({ maxDeductions: 0 });
+
+        if (result.clue) {
+            // Rollback to check what the deductions were for this clue
+            session.rollbackLastClue();
+
+            // Check score of this specific clue in current state
+            // We can filter for it specifically if we know its content, or just check that NO clues with deductions > 0 match our constraint?
+            // Actually, getNextClue uses the constraint.
+            // If we call getScoredMatchingClues with the SAME constraint (maxDeductions:0), the clue should be there.
+            // If we call it WITHOUT constraint, we can see its true deductions.
+
+            const matches = session.getScoredMatchingClues({}, 500);
+            // Find the clue that was just generated (by value equality or reference logic if reliable)
+            // Since clue objects might be new instances, we compare content.
+            // Helper to compare clues needed? JSON.stringify works well enough for simple objects.
+            const jsonClue = JSON.stringify(result.clue);
+            const match = matches.find(m => JSON.stringify(m.clue) === jsonClue);
+
+            if (match) {
+                expect(match.deductions).toBe(0);
+            }
+        }
+    });
+
     test('getScoredMatchingClues updates scores after applying a clue', () => {
         // Initial State
         const initialResults = session.getScoredMatchingClues({}, 200);

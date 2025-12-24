@@ -197,6 +197,7 @@ The main class. Use `new Generator(seed)` to initialize.
         - `includeSubjects`: `string[]` (New in v1.1.X). Restrict to clues involving these values.
         - `excludeSubjects`: `string[]` (New in v1.1.X). Exclude clues involving these values.
         - `minDeductions`: `number` (New in v1.1.X). Min new info required (default 1). Set to 0 for filler.
+        - `maxDeductions`: `number`. Max new info allowed. Set to 0 to force redundant clues.
     - `options.onTrace`: **(Debug)** Callback `(msg: string) => void`. Receives real-time logs about the generation process.
 - `generatePuzzleAsync(...)`: **New in v1.1.0**. Non-blocking version of `generatePuzzle`. Returns `Promise<Puzzle>`.
 - `getClueCountBounds(categories, target)`: Returns plausible Min/Max clue counts.
@@ -236,7 +237,7 @@ The logical engine responsible for applying clues and performing deductions.
 Manages a stateful, step-by-step puzzle generation process.
 - `getNextClue(constraints?)`: Returns `{ clue: Clue | null, remaining: number, solved: boolean }`.
     - Generates and selects the next best clue based on the current grid state.
-    -### `session.getNextClue(options?: ClueGenerationConstraints)`
+### `session.getNextClue(options?: ClueGenerationConstraints)`
 
 Generates the next step in the puzzle, returning the best available clue based on internal scoring and provided constraints.
 
@@ -259,11 +260,30 @@ Each result object contains:
 
 ### `session.useClue(clue: Clue)`
 
-Manually applies a specific clue to the board. Useful for interactive search features.
+Manually applies a specific clue to the board. 
+**Safety**: This method validates the clue against the hidden solution. If the clue implies a contradiction (i.e. is logically false), it throws an `Error`.
 
-### `session.rollbackLastClue()`: Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
-- `getNextClueAsync(constraints?)`: **New in v1.1.1**. Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
-- `rollbackLastClue()`: Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
+### `session.rollbackLastClue()`
+Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
+
+### `session.removeClue(index: number)`
+**New in v1.2.0**. Removes a clue from the current proof chain at the specified index.
+- Automatically recalculates all deductions for subsequent clues.
+- Updates the "Target Solved" status if the removal breaks the logical path to the goal.
+
+### `session.moveClue(fromIndex: number, toIndex: number)`
+**New in v1.2.0**. Reorders clues in the proof chain.
+- Returns `true` if the move was valid and successful.
+- Recalculates the entire puzzle state based on the new order.
+- This allows for "What If?" scenarios: "What if I knew this fact earlier?"
+
+### `session.getTargetSolvedStepIndex()`
+**New in v1.2.0**. Returns the index of the clue that first makes the Target Fact deducible.
+- Returns `-1` if the target is not yet solved.
+- This is dynamic: removing or reordering clues will change this index, allowing you to find the exact "Eureka!" moment in the chain.
+
+### `session.getNextClueAsync(constraints?)`
+**New in v1.1.1**. Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
 - `getGrid()`: Returns the current `LogicGrid` state.
 - `getSolution()`: Returns the target `Solution` map.
 - `getProofChain()`: Returns the list of `Clue`s applied so far.
@@ -310,7 +330,8 @@ while (!solved) {
         allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL],
         includeSubjects: ['Mustard', 'Plum'],     // Only clues about these entities
         excludeSubjects: ['Revolver'],            // No clues dealing with Revolvers
-        minDeductions: 0                          // Allow "useless" clues (flavor text)
+        minDeductions: 0,                         // Allow "useless" clues (flavor text)
+        maxDeductions: 0                          // STRICTLY "useless" clues (0 deductions)
     });
     });
 

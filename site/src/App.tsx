@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType, GenerativeSession, Clue, CrossOrdinalOperator, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, ValueLabel } from '../../src/index';
 import { LogicGridPuzzle } from './components/LogicGridPuzzle';
@@ -75,11 +75,16 @@ function App() {
   const [isDirty, setIsDirty] = useState(false);
   const lastSavedState = useRef<string>('');
 
-  // Modals
+  // UI Modals
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isSavesModalOpen, setIsSavesModalOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
-  const [alertState, setAlertState] = useState<{ isOpen: boolean; title: string; message: string }>({ isOpen: false, title: '', message: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [alertState, setAlertState] = useState<{ isOpen: boolean, title: string, message: string }>({ isOpen: false, title: '', message: '' });
+
+  // Clue Removal Modal
+  const [clueToRemoveIndex, setClueToRemoveIndex] = useState<number | null>(null);
+  const isRemoveModalOpen = clueToRemoveIndex !== null;
 
   const showAlert = (title: string, message: string) => {
     setAlertState({ isOpen: true, title, message });
@@ -117,8 +122,9 @@ function App() {
   const [includeSubjectsInput, setIncludeSubjectsInput] = useState<string[]>([]);
   const [excludeSubjectsInput, setExcludeSubjectsInput] = useState<string[]>([]);
   const [minDeductionsInput, setMinDeductionsInput] = useState<number>(1);
+  const [maxDeductionsInput, setMaxDeductionsInput] = useState<number | undefined>(undefined);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, isDirectAnswer: boolean }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, isDirectAnswer: boolean, percentComplete: number }[]>([]);
   // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
 
   // --- Step 3: Solution State ---
@@ -142,17 +148,24 @@ function App() {
   const [timeLeft, setTimeLeft] = useState(0);
   // Live Search Update
   useEffect(() => {
-    if (isInteractiveMode && isSearchOpen && session) {
-      const results = session.getScoredMatchingClues({
-        allowedClueTypes: nextClueConstraints,
-        includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
-        excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
-        minDeductions: minDeductionsInput
-      });
-      setSearchResults(results);
+    if (isInteractiveMode && session && isSearchOpen) {
+      try {
+        const results = session.getScoredMatchingClues({
+          allowedClueTypes: nextClueConstraints,
+          includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+          excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+          minDeductions: minDeductionsInput,
+          maxDeductions: maxDeductionsInput
+        }, 50); // limit 50
+        setSearchResults(results);
+      } catch (e) {
+        // If config is invalid (e.g. min > max), just clear results or log
+        // We could also set an error state to display to user, but clearing lists avoids crash.
+        console.warn("Search error:", e);
+        setSearchResults([]);
+      }
     }
-  }, [isInteractiveMode, session, isSearchOpen, nextClueConstraints, includeSubjectsInput, excludeSubjectsInput, minDeductionsInput, puzzle]);
-
+  }, [isInteractiveMode, session, isSearchOpen, nextClueConstraints, includeSubjectsInput, excludeSubjectsInput, minDeductionsInput, maxDeductionsInput, puzzle]); // Update when constraints or puzzle state changes
   // Countdown Timer
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -223,9 +236,9 @@ function App() {
           setSeedInput(data.config.seedInput || '');
           setFlavorText(data.config.flavorText || '');
           setPuzzleTitle(data.config.puzzleTitle || '');
-          setTargetCat1Idx(data.config.targetCat1Idx || 0);
-          setTargetVal1Idx(data.config.targetVal1Idx || 0);
-          setTargetCat2Idx(data.config.targetCat2Idx || 1);
+          setTargetCat1Idx(data.config.targetCat1Idx ?? 0);
+          setTargetVal1Idx(data.config.targetVal1Idx ?? 0);
+          setTargetCat2Idx(data.config.targetCat2Idx ?? 1);
           setUseSpecificGoal(data.config.useSpecificGoal ?? true);
 
 
@@ -373,7 +386,7 @@ function App() {
 
     // Reset targets if out of bounds
     if (targetCat1Idx >= nC) setTargetCat1Idx(0);
-    if (targetCat2Idx >= nC) setTargetCat2Idx(1);
+    if (targetCat2Idx >= nC) setTargetCat2Idx(nC > 1 ? 1 : 0);
 
     // Heuristic: Use precomputed bounds
     const bounds = getRecommendedBounds(nC, nI);
@@ -402,7 +415,6 @@ function App() {
   };
 
   // --- Save / Load Logic ---
-  const [isSavesModalOpen, setIsSavesModalOpen] = useState(false);
   const [savedPuzzles, setSavedPuzzles] = useState<SavedPuzzle[]>([]);
 
   useEffect(() => {
@@ -1419,6 +1431,96 @@ function App() {
 
 
 
+  // --- Clue Removal (Interactive) ---
+  const handleRemoveClue = (index: number) => {
+    if (!session || !puzzle) return;
+
+    // session.removeClueAt handles the logic of removing and replaying
+    if (session.removeClueAt(index)) {
+      const chain = session.getProofChain();
+
+      // Reconstruct puzzle state from session
+      // We map the session clues (which have metadata attached) to ProofSteps
+      const newProof = chain.map(c => ({
+        clue: c,
+        deductions: (c as any).deductions
+      }));
+
+      setPuzzle({
+        ...puzzle,
+        proofChain: newProof,
+        clues: chain
+      });
+
+      // Update interactiveSolved state
+      // Let's just set interactiveSolved to false for safety unless we check.
+      setInteractiveSolved(false);
+
+      // Reset selection to the end
+      if (selectedStep >= newProof.length) {
+        setSelectedStep(newProof.length - 1);
+      }
+    }
+  };
+
+  // Drag and Drop State for Clues
+  const [draggedClueIndex, setDraggedClueIndex] = useState<number | null>(null);
+
+  // Generation Controls State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  const handleClueDragStart = (e: React.DragEvent, index: number) => {
+    e.stopPropagation();
+    e.dataTransfer.effectAllowed = 'move';
+    // Firefox requires data to be set
+    e.dataTransfer.setData('text/plain', String(index));
+    setDraggedClueIndex(index);
+  };
+
+  const handleClueDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleClueDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (draggedClueIndex === null || draggedClueIndex === targetIndex) return;
+
+    handleMoveClue(draggedClueIndex, targetIndex);
+    setDraggedClueIndex(null);
+  };
+
+  const handleClueDragEnd = () => {
+    setDraggedClueIndex(null);
+  };
+
+  const handleMoveClue = (fromIndex: number, toIndex: number) => {
+    if (!session || !puzzle) return;
+    if (session.moveClue(fromIndex, toIndex)) {
+      const chain = session.getProofChain();
+      const newProof = chain.map(c => ({
+        clue: c,
+        deductions: (c as any).deductions
+      }));
+
+      setPuzzle({
+        ...puzzle,
+        proofChain: newProof,
+        clues: chain
+      });
+
+      if (selectedStep === fromIndex) setSelectedStep(toIndex);
+    }
+  };
+
+  const confirmRemoveClue = () => {
+    if (clueToRemoveIndex !== null) {
+      handleRemoveClue(clueToRemoveIndex);
+      setClueToRemoveIndex(null);
+    }
+  };
 
   const renderSolutionStep = () => {
     if (!puzzle) return null;
@@ -1521,202 +1623,220 @@ function App() {
                 </button>
               </>
             )}
-            {isInteractiveMode && (
-              <button
-                className="secondary-button"
-                onClick={() => {
-                  setActiveStep(3);
-                  setSession(null);
-                  setPuzzle(null); // Clean up the puzzle visualization
-                  setInteractiveSolved(false);
-                }}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #444',
-                  color: '#ccc',
-                  borderRadius: '6px',
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontWeight: 'bold',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#666'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#444'; }}
-              >
-                {interactiveSolved ? 'Finish Session' : 'Cancel Session'}
-              </button>
-            )}
+
           </div>
 
         </div>
 
         {isInteractiveMode && session && (
           <div className="print-hide" style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h4 style={{ margin: 0, color: '#d5c4a1' }}>Generation Controls</h4>
-              <span style={{ fontSize: '0.8em', color: '#888' }}>Total Remaining: {session.getTotalClueCount()}</span>
+            {/* Generation Controls Header (Collapsible Trigger) */}
+            {/* Generation Controls Header (Collapsible Trigger) */}
+            <div
+              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-start', // Changed to flex-start
+                alignItems: 'center',
+                cursor: 'pointer',
+                marginBottom: '10px',
+                padding: '10px',
+                backgroundColor: '#32302f',
+                borderRadius: '5px',
+                userSelect: 'none'
+              }}
+            >
+              <div style={{ color: '#aaa', marginRight: '10px', fontSize: '1.2em', width: '20px', textAlign: 'center' }}>
+                {isSettingsOpen ? '▼' : '▶'}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <h4 style={{ margin: 0, color: '#d5c4a1' }}>Generation Controls</h4>
+                <span style={{ fontSize: '0.8em', color: '#888' }}>({session.getTotalClueCount()} clues)</span>
+              </div>
             </div>
-            <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
-              {[
-                { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
-                { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
-              ].map((group) => (
-                <div key={group.title} style={{ minWidth: '200px' }}>
-                  <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '8px', fontWeight: 'bold' }}>{group.title}</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                    {group.types.map(type => {
-                      const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
-                      const hasValidUnaryCategory = categories.some(cat => {
-                        if (cat.type !== CategoryType.ORDINAL) return false;
-                        const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
-                        const hasOdd = numericValues.some(v => v % 2 !== 0);
-                        const hasEven = numericValues.some(v => v % 2 === 0);
-                        return hasOdd && hasEven;
-                      });
 
-                      let isDisabled = false;
-                      let disabledReason = '';
+            {/* Collapsible Content */}
+            {isSettingsOpen && (
+              <div style={{ animation: 'fadeIn 0.2s' }}>
 
-                      if (type === ClueType.CROSS_ORDINAL) {
-                        if (ordinalCount < 2) {
-                          isDisabled = true;
-                          disabledReason = '(Req. 2+ Ordinal Cats)';
-                        }
-                      } else if (type === ClueType.UNARY) {
-                        if (!hasValidUnaryCategory) {
-                          isDisabled = true;
-                          disabledReason = '(Req. Mixed Odd/Even)';
-                        }
-                      } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE].includes(type)) {
-                        if (ordinalCount < 1) {
-                          isDisabled = true;
-                          disabledReason = '(Req. Ordinal Cat)';
-                        }
-                      }
+                <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+                  {[
+                    { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                    { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
+                  ].map((group) => (
+                    <div key={group.title} style={{ minWidth: '200px' }}>
+                      <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '8px', fontWeight: 'bold' }}>{group.title}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {group.types.map(type => {
+                          const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+                          const hasValidUnaryCategory = categories.some(cat => {
+                            if (cat.type !== CategoryType.ORDINAL) return false;
+                            const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                            const hasOdd = numericValues.some(v => v % 2 !== 0);
+                            const hasEven = numericValues.some(v => v % 2 === 0);
+                            return hasOdd && hasEven;
+                          });
 
-                      // Only show types that are globally allowed
-                      if (!allowedClueTypes.includes(type)) return null;
+                          let isDisabled = false;
+                          let disabledReason = '';
 
-                      const isSelected = nextClueConstraints.includes(type);
+                          if (type === ClueType.CROSS_ORDINAL) {
+                            if (ordinalCount < 2) {
+                              isDisabled = true;
+                              disabledReason = '(Req. 2+ Ordinal Cats)';
+                            }
+                          } else if (type === ClueType.UNARY) {
+                            if (!hasValidUnaryCategory) {
+                              isDisabled = true;
+                              disabledReason = '(Req. Mixed Odd/Even)';
+                            }
+                          } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE].includes(type)) {
+                            if (ordinalCount < 1) {
+                              isDisabled = true;
+                              disabledReason = '(Req. Ordinal Cat)';
+                            }
+                          }
 
-                      return (
-                        <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected && !isDisabled}
-                            disabled={isDisabled}
-                            onChange={(e) => {
-                              if (isDisabled) return;
-                              let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
+                          // Only show types that are globally allowed
+                          if (!allowedClueTypes.includes(type)) return null;
 
-                              // Validation: Ensure at least one Core type is selected
-                              const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
-                              const hasStrong = newAllowed.some(t => strongTypes.includes(t));
+                          const isSelected = nextClueConstraints.includes(type);
 
-                              if (newAllowed.length > 0 && !hasStrong) {
-                                showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one Core Clue type (Binary, Ordinal, etc.) to ensure the puzzle is solvable.");
-                                return;
-                              }
+                          return (
+                            <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                              <input
+                                type="checkbox"
+                                checked={isSelected && !isDisabled}
+                                disabled={isDisabled}
+                                onChange={(e) => {
+                                  if (isDisabled) return;
+                                  let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
 
-                              setNextClueConstraints(newAllowed);
-                            }}
-                          />
-                          {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>{disabledReason}</span>}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginBottom: '15px', color: '#ccc' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                {/* Include Subjects */}
-                <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include Subjects (Allowlist)</div>
-                  <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    {categories.map((cat, i) => (
-                      <div key={i}>
-                        <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {cat.values.map((val, vIdx) => {
-                            const valStr = String(val);
-                            const isSelected = includeSubjectsInput.includes(valStr);
-                            const isDisabled = excludeSubjectsInput.includes(valStr);
-                            return (
-                              <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#324a3e' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #8ec07c' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  disabled={isDisabled}
-                                  onChange={(e) => {
-                                    if (e.target.checked) setIncludeSubjectsInput([...includeSubjectsInput, valStr]);
-                                    else setIncludeSubjectsInput(includeSubjectsInput.filter(s => s !== valStr));
-                                  }}
-                                  style={{ display: 'none' }}
-                                />
-                                {valStr}
-                              </label>
-                            );
-                          })}
-                        </div>
+                                  // Validation: Ensure at least one Core type is selected
+                                  const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+                                  const hasStrong = newAllowed.some(t => strongTypes.includes(t));
+
+                                  if (newAllowed.length > 0 && !hasStrong) {
+                                    showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one Core Clue type (Binary, Ordinal, etc.) to ensure the puzzle is solvable.");
+                                    return;
+                                  }
+
+                                  setNextClueConstraints(newAllowed);
+                                }}
+                              />
+                              {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>{disabledReason}</span>}
+                            </label>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-
-                {/* Exclude Subjects */}
-                <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                  <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude Subjects (Disallowlist)</div>
-                  <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    {categories.map((cat, i) => (
-                      <div key={i}>
-                        <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          {cat.values.map((val, vIdx) => {
-                            const valStr = String(val);
-                            const isSelected = excludeSubjectsInput.includes(valStr);
-                            const isDisabled = includeSubjectsInput.includes(valStr);
-                            return (
-                              <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#5a2c2c' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #fb4934' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  disabled={isDisabled}
-                                  onChange={(e) => {
-                                    if (e.target.checked) setExcludeSubjectsInput([...excludeSubjectsInput, valStr]);
-                                    else setExcludeSubjectsInput(excludeSubjectsInput.filter(s => s !== valStr));
-                                  }}
-                                  style={{ display: 'none' }}
-                                />
-                                {valStr}
-                              </label>
-                            );
-                          })}
-                        </div>
+                <div style={{ marginBottom: '15px', color: '#ccc' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                    {/* Include Subjects */}
+                    <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include Subjects (Allowlist)</div>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {categories.map((cat, i) => (
+                          <div key={i}>
+                            <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {cat.values.map((val, vIdx) => {
+                                const valStr = String(val);
+                                const isSelected = includeSubjectsInput.includes(valStr);
+                                const isDisabled = excludeSubjectsInput.includes(valStr);
+                                return (
+                                  <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#324a3e' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #8ec07c' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      disabled={isDisabled}
+                                      onChange={(e) => {
+                                        if (e.target.checked) setIncludeSubjectsInput([...includeSubjectsInput, valStr]);
+                                        else setIncludeSubjectsInput(includeSubjectsInput.filter(s => s !== valStr));
+                                      }}
+                                      style={{ display: 'none' }}
+                                    />
+                                    {valStr}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Exclude Subjects */}
+                    <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                      <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude Subjects (Disallowlist)</div>
+                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {categories.map((cat, i) => (
+                          <div key={i}>
+                            <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                              {cat.values.map((val, vIdx) => {
+                                const valStr = String(val);
+                                const isSelected = excludeSubjectsInput.includes(valStr);
+                                const isDisabled = includeSubjectsInput.includes(valStr);
+                                return (
+                                  <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#5a2c2c' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #fb4934' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      disabled={isDisabled}
+                                      onChange={(e) => {
+                                        if (e.target.checked) setExcludeSubjectsInput([...excludeSubjectsInput, valStr]);
+                                        else setExcludeSubjectsInput(excludeSubjectsInput.filter(s => s !== valStr));
+                                      }}
+                                      style={{ display: 'none' }}
+                                    />
+                                    {valStr}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginBottom: '20px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                      <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Min Ded</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={minDeductionsInput}
+                        onChange={(e) => setMinDeductionsInput(Math.max(0, parseInt(e.target.value) || 0))}
+                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
+                      />
+                    </label>
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                      <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Max Ded</span>
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="∞"
+                        value={maxDeductionsInput === undefined ? '' : maxDeductionsInput}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val === '') setMaxDeductionsInput(undefined);
+                          else setMaxDeductionsInput(Math.max(0, parseInt(val)));
+                        }}
+                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
+                      />
+                    </label>
                   </div>
                 </div>
               </div>
-
-              <div style={{ marginBottom: '20px' }}>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                  <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Min Deductions</span>
-                  <input
-                    type="number"
-                    min="0"
-                    value={minDeductionsInput}
-                    onChange={(e) => setMinDeductionsInput(parseInt(e.target.value) || 0)}
-                    style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '80px' }}
-                  />
-                </label>
-              </div>
-            </div>
+            )}
 
 
             {/* Action Buttons Row */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
               {/* Search Toggle */}
               <button
                 onClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -1736,37 +1856,48 @@ function App() {
               >
                 {isSearchOpen ? 'Hide Search' : 'Find Matching Clues'}
                 <span style={{ backgroundColor: '#282828', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8em', color: '#aaa' }}>
-                  {session.getMatchingClueCount({ allowedClueTypes: nextClueConstraints, includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined, excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined, minDeductions: minDeductionsInput })}
+                  {session.getMatchingClueCount({
+                    allowedClueTypes: nextClueConstraints,
+                    includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+                    excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+                    minDeductions: minDeductionsInput,
+                    maxDeductions: maxDeductionsInput
+                  })}
                 </span>
               </button>
 
               {/* Generate Button */}
               <button
                 onClick={() => {
-                  const result = session.getNextClue({
-                    allowedClueTypes: nextClueConstraints,
-                    includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
-                    excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
-                    minDeductions: minDeductionsInput
-                  });
+                  try {
+                    const result = session.getNextClue({
+                      allowedClueTypes: nextClueConstraints,
+                      includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+                      excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+                      minDeductions: minDeductionsInput,
+                      maxDeductions: maxDeductionsInput
+                    });
 
-                  if (result.clue) {
-                    const newStep = { clue: result.clue } as any;
-                    const newProof = [...puzzle.proofChain, newStep];
-                    const newClues = [...puzzle.clues, result.clue];
-                    setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                    setSelectedStep(newProof.length - 1);
-                  } else {
-                    if (result.solved) {
-                      showAlert("Puzzle Solved!", "The grid is fully solved!");
-                      setInteractiveSolved(true);
+                    if (result.clue) {
+                      const newStep = { clue: result.clue } as any;
+                      const newProof = [...puzzle.proofChain, newStep];
+                      const newClues = [...puzzle.clues, result.clue];
+                      setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                      setSelectedStep(newProof.length - 1);
                     } else {
-                      showAlert("No Clue Found", "Could not generate a clue with these constraints.");
+                      if (result.solved) {
+                        showAlert("Puzzle Solved!", "The grid is fully solved!");
+                        setInteractiveSolved(true);
+                      } else {
+                        showAlert("No Clue Found", "Could not generate a clue with these constraints.");
+                      }
                     }
-                  }
-                  if (result.solved) {
-                    setInteractiveSolved(true);
-                    if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
+                    if (result.solved) {
+                      setInteractiveSolved(true);
+                      if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
+                    }
+                  } catch (e: any) {
+                    showAlert("Generation Error", e.message || "An error occurred.");
                   }
                 }}
                 disabled={interactiveSolved || nextClueConstraints.length === 0}
@@ -1849,20 +1980,25 @@ function App() {
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
                           <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
                           <span title="Deductions">Ded: <span style={{ color: '#98971a' }}>{item.deductions}</span></span>
+                          <span title="Projected Completion">%: <span style={{ color: '#8ec07c' }}>{Math.round(item.percentComplete)}%</span></span>
                         </div>
                         <button
                           onClick={() => {
-                            const result = session?.useClue(item.clue);
-                            if (result && session && puzzle) {
-                              const newStep = { clue: item.clue } as any;
-                              const newProof = [...puzzle.proofChain, newStep];
-                              const newClues = [...puzzle.clues, item.clue];
-                              setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                              setSelectedStep(newProof.length - 1);
-                              if (result.solved) {
-                                showAlert("Puzzle Solved!", "The grid is fully solved!");
-                                setInteractiveSolved(true);
+                            try {
+                              const result = session?.useClue(item.clue);
+                              if (result && session && puzzle) {
+                                const newStep = { clue: item.clue } as any;
+                                const newProof = [...puzzle.proofChain, newStep];
+                                const newClues = [...puzzle.clues, item.clue];
+                                setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                                setSelectedStep(newProof.length - 1);
+                                if (result.solved) {
+                                  showAlert("Puzzle Solved!", "The grid is fully solved!");
+                                  setInteractiveSolved(true);
+                                }
                               }
+                            } catch (e: any) {
+                              showAlert("Cannot Add Clue", e.message || "An error occurred.");
                             }
                           }}
                           disabled={item.isDirectAnswer}
@@ -1958,47 +2094,198 @@ function App() {
 
             const isActive = selectedStep === i;
             const isFuture = selectedStep !== -1 && i > selectedStep;
+            const isDragging = draggedClueIndex === i;
 
             return (
-              <div
-                key={i}
-                className="clue-row" // Added for print
-                onClick={() => setSelectedStep(i)}
-                style={{
-                  padding: '15px 20px',
-                  borderBottom: '1px solid #333',
-                  backgroundColor: isActive ? '#333' : 'transparent',
-                  opacity: isFuture ? 0.3 : 1,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  color: '#ddd'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <span style={{
-                    color: isActive ? '#fff' : '#666',
-                    marginRight: '10px',
-                    fontWeight: isActive ? 'bold' : 'normal',
-                    fontFamily: 'monospace',
-                    width: '20px',
-                    textAlign: 'right',
-                    display: 'inline-block'
-                  }}>
-                    {i + 1}.
-                  </span>
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ fontSize: '1.1em', color: '#fff' }}>
-                      {renderPlainLanguageClue(step.clue, categories)}
-                    </div>
-                    <div className="print-hide" style={{ fontSize: '0.8em', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
-                      {desc}
+              <React.Fragment key={i}>
+                <div
+                  className="clue-row" // Added for print
+                  draggable={isInteractiveMode}
+                  onDragStart={(e) => handleClueDragStart(e, i)}
+                  onDragOver={handleClueDragOver}
+                  onDrop={(e) => handleClueDrop(e, i)}
+                  onDragEnd={handleClueDragEnd}
+                  onClick={() => setSelectedStep(i)}
+                  style={{
+                    padding: '15px 20px',
+                    borderBottom: '1px solid #333',
+                    backgroundColor: isActive ? '#333' : 'transparent',
+                    opacity: isDragging ? 0.3 : (isFuture ? 0.3 : 1),
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    color: '#ddd'
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {/* Remove/Drag Controls (Interactive Mode Only) */}
+                    {isInteractiveMode && (
+                      <div style={{ display: 'flex', alignItems: 'center', marginRight: '8px' }}>
+                        <div
+                          style={{
+                            width: '24px',
+                            flexShrink: 0,
+                            display: 'flex',
+                            justifyContent: 'center',
+                            cursor: 'grab',
+                            color: '#555',
+                            fontSize: '1.2em',
+                            marginRight: '8px'
+                          }}
+                          title="Drag to reorder clue"
+                        >
+                          ⋮⋮
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setClueToRemoveIndex(i);
+                          }}
+                          style={{
+                            marginRight: '10px',
+                            background: 'transparent',
+                            border: 'none',
+                            color: '#fb4934',
+                            cursor: 'pointer',
+                            fontSize: '1em',
+                            fontWeight: 'bold',
+                            padding: '0 5px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                          title="Remove Clue"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                    <span style={{
+                      color: isActive ? '#fff' : '#666',
+                      marginRight: '10px',
+                      fontWeight: isActive ? 'bold' : 'normal',
+                      fontFamily: 'monospace',
+                      width: '30px',
+                      textAlign: 'right',
+                      display: 'inline-block'
+                    }}>
+                      {i + 1}.
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                      <div style={{ fontSize: '1.1em', color: '#fff' }}>
+                        {renderPlainLanguageClue(step.clue, categories)}
+                      </div>
+                      {/* Only show raw description and metadata in Solution View (all steps valid) or if interactive finished? 
+                        User asked: "ONLY show that when the solution view is selected"
+                        By solution view, they likely mean the "Show Full Solution" mode where selectedStep == -1 (or effectively all shown).
+                        However, this function 'renderSolutionStep' is used FOR the solution view list.
+                        BUT, this list is visible in both "Play" and "Solution" modes? No.
+                        Actually, renderSolutionStep is called ONLY when puzzle exists.
+                        Wait, let's distinguish "Solution View" vs "Play View".
+                        Play mode: User adds clues interactively. List grows.
+                        Solution mode: User clicked "Show Full Solution" (selectedStep = -1).
+                        Actually, the user can toggle steps.
+                        Let's verify what "Solution View" means.
+                        "when the solution view is selected" -> probably when `selectedStep === -1` OR generally when viewing the solution list vs the interactive session panel?
+                        NO, the user says "the small text underneath each clue... I want to ONLY show that when the solution view is selected."
+                        AND "ONLY when the solution view is selected: The number of deductions... etc".
+                        
+                        This implies there's a boolean or state for "Solution View".
+                        In `App.tsx`, we have `selectedStep`. If `selectedStep === -1`, we usually show the final state.
+                        But the user might mean "When we are NOT in interactive mode"?
+                        Or maybe they mean the toggle button "Show Full Solution".
+                        
+                        Let's assume "Solution View" == Interactive Mode is NOT active OR puzzle is fully solved/revealed?
+                        Actually, looking at the UI, there isn't a strict "Solution View" variable.
+                        But there is `renderSolutionStep` function.
+                        Wait, is `renderSolutionStep` ONLY used for the sidebar list? Yes.
+                        
+                        Let's assume "Solution View" = `!isInteractiveMode`? No, because we can have a generated puzzle without interactive mode.
+                        
+                        Let's assume "Solution View" is when the user intentionally reveals the solution?
+                        Or maybe the user means just the sidebar vs the main area?
+                        
+                        Re-reading request: "Ok so you know how we have the solution view and the play view?"
+                        This likely refers to the "Interactive Session" (Play View) vs the static "Generator" (Solution View) or just the fact that in Interactive Mode we hide the proof chain until added?
+                        
+                        Actually, `selectedStep` controls what's shown on the grid.
+                        
+                        Let's look for a prop or state that distinguishes these.
+                        Ah, `isInteractiveMode` is a major switch.
+                        If `isInteractiveMode` is TRUE, we are "Playing".
+                        If `isInteractiveMode` is FALSE, we are likely in "Solution View" (Standard Generator).
+                        
+                        So:
+                        1. If `isInteractiveMode`, HIDE raw desc and HIDE metadata.
+                        2. If `!isInteractiveMode`, SHOW raw desc and SHOW metadata.
+                        
+                        Wait, can we review `isInteractiveMode` again?
+                        When we verify: `startSession` sets `isInteractiveMode(true)`.
+                        So `!isInteractiveMode` IS the Solution View.
+                     */}
+
+                      {/* Only show raw description and metadata in Solution View */}
+                      {viewMode === 'solution' && (
+                        <>
+                          <div className="print-hide" style={{ fontSize: '0.8em', color: '#888', fontStyle: 'italic', marginTop: '4px' }}>
+                            {desc}
+                          </div>
+                          <div style={{ marginTop: '5px', display: 'flex', gap: '10px', fontSize: '0.75em' }}>
+                            {/* Deductions */}
+                            <span style={{
+                              color: (c.deductions === 0) ? '#fb4934' : '#fabd2f',
+                              fontWeight: 'bold'
+                            }}>
+                              {(c.deductions ?? 0)} deductions
+                            </span>
+
+                            {/* % Complete */}
+                            <span style={{ color: '#8ec07c' }}>
+                              {Math.round(c.percentComplete ?? 0)}% complete
+                            </span>
+                          </div>
+
+                          {/* Redundancy Indicator (Visual styling) */}
+                          {c.deductions === 0 && (
+                            <div style={{
+                              marginTop: '2px',
+                              height: '2px',
+                              backgroundColor: '#fb4934',
+                              width: '100%',
+                              opacity: 0.5
+                            }} />
+                          )}
+                        </>
+                      )}
+
+                      {/* Target Revealed Marker (Inline) */}
+                      {session && session.getTargetSolvedStepIndex() === i && viewMode === 'solution' && (
+                        <div className="print-hide" style={{
+                          marginTop: '8px',
+                          display: 'inline-block',
+                          alignSelf: 'flex-start',
+                          padding: '4px 8px',
+                          backgroundColor: 'rgba(215, 153, 33, 0.15)',
+                          border: '1px solid #d79921',
+                          borderRadius: '4px',
+                          color: '#d79921',
+                          fontSize: '0.8em',
+                          fontWeight: 'bold',
+                          animation: 'fadeIn 0.5s',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                        }}>
+                          Target Fact Revealed
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
-              </div>
+
+
+              </React.Fragment>
             );
           })}
-        </div>
+
+        </div >
         <div style={{ padding: '20px', display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap' }}>
           {!seedInput && !isInteractiveMode && (
             <button
@@ -2124,6 +2411,18 @@ function App() {
         confirmText="Delete"
       />
 
+
+
+      {/* Clue Removal Confirmation Modal */}
+      <Modal
+        isOpen={isRemoveModalOpen}
+        onClose={() => setClueToRemoveIndex(null)}
+        title="Remove Clue?"
+        message={`Are you sure you want to remove clue #${(clueToRemoveIndex ?? 0) + 1}? All subsequent deductions will be recalculated.`}
+        onConfirm={confirmRemoveClue}
+        type="confirm"
+        confirmText="Remove"
+      />
 
 
       <div className="main-content">

@@ -88,4 +88,15 @@ export interface CrossOrdinalClue {
     offset2: number;
 }
 
+/**
+ * Union type representing any valid clue.
+ */
 export type Clue = BinaryClue | OrdinalClue | SuperlativeClue | UnaryClue | CrossOrdinalClue;
+
+/**
+ * Extension for clues with metadata attached during generation/solving.
+ */
+export type ClueWithMetadata = Clue & {
+    deductions?: number;
+    percentComplete?: number;
+};

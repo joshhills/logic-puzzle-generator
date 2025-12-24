@@ -108,6 +108,11 @@ export interface ClueGenerationConstraints {
      * Default is 0 (allow all clues). Set to 1 to ensure progress.
      */
     minDeductions?: number;
+    /**
+     * Maximum number of new deductions this clue is allowed to provide.
+     * Useful for finding low-impact or "filler" clues, or ensuring a clue isn't *too* powerful.
+     */
+    maxDeductions?: number;
 
     // Future extension points:
     // allowedBinaryOperators?: BinaryOperator[];
