@@ -98,5 +98,6 @@ export type Clue = BinaryClue | OrdinalClue | SuperlativeClue | UnaryClue | Cros
  */
 export type ClueWithMetadata = Clue & {
     deductions?: number;
+    updates?: number;
     percentComplete?: number;
 };

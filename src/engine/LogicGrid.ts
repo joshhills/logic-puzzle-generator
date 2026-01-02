@@ -207,4 +207,54 @@ export class LogicGrid {
         );
         return newGrid;
     }
+    /**
+     * Compares this grid with a previous state and counts visual updates.
+     * A "Visual Update" is defined as:
+     * 1. A cell changing from Possible (True) to Eliminated (False) [Red Cross]
+     * 2. A cell changing from Ambiguous (Count > 1) to Unique (Count == 1) [Green Check]
+     * 
+     * @param prevGrid - The previous grid state.
+     * @returns The number of visual updates.
+     */
+    public compareVisualState(prevGrid: LogicGrid): number {
+        let updates = 0;
+        const categories = this.categories;
+
+        for (const cat1 of categories) {
+            for (const val1 of cat1.values) {
+                for (const cat2 of categories) {
+                    if (cat1.id >= cat2.id) continue;
+
+                    // 1. Check for Red Crosses (True -> False)
+                    // We iterate individual cells
+                    const val1Map = this.grid.get(cat1.id)?.get(val1);
+                    const prevVal1Map = prevGrid.grid.get(cat1.id)?.get(val1);
+
+                    if (val1Map && prevVal1Map) {
+                        const vals2Arr = val1Map.get(cat2.id);
+                        const prevVals2Arr = prevVal1Map.get(cat2.id);
+
+                        if (vals2Arr && prevVals2Arr) {
+                            for (let i = 0; i < vals2Arr.length; i++) {
+                                // If it WAS true and IS NOW false
+                                if (prevVals2Arr[i] && !vals2Arr[i]) {
+                                    updates++;
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Check for Green Checks (Ambiguous -> Unique)
+                    // We check the Row Context (Possibilities Count)
+                    const prevCount = prevGrid.getPossibilitiesCount(cat1.id, val1, cat2.id);
+                    const currCount = this.getPossibilitiesCount(cat1.id, val1, cat2.id);
+
+                    if (prevCount > 1 && currCount === 1) {
+                        updates++;
+                    }
+                }
+            }
+        }
+        return updates;
+    }
 }

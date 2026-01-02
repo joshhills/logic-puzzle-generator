@@ -124,7 +124,7 @@ function App() {
   const [minDeductionsInput, setMinDeductionsInput] = useState<number>(1);
   const [maxDeductionsInput, setMaxDeductionsInput] = useState<number | undefined>(undefined);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, isDirectAnswer: boolean, percentComplete: number }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, updates: number, isDirectAnswer: boolean, percentComplete: number }[]>([]);
   // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
 
   // --- Step 3: Solution State ---
@@ -1605,7 +1605,10 @@ function App() {
                   Print / Save PDF
                 </button>
                 <button
-                  onClick={() => setSelectedStep(-1)}
+                  onClick={() => {
+                    setSelectedStep(-1);
+                    setViewMode('solution');
+                  }}
                   style={{
                     background: 'transparent',
                     border: '1px solid #444',
@@ -1979,7 +1982,7 @@ function App() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
                           <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
-                          <span title="Deductions">Ded: <span style={{ color: '#98971a' }}>{item.deductions}</span></span>
+                          <span title="Visual Updates">Upd: <span style={{ color: '#98971a' }}>{item.updates !== undefined ? item.updates : item.deductions}</span></span>
                           <span title="Projected Completion">%: <span style={{ color: '#8ec07c' }}>{Math.round(item.percentComplete)}%</span></span>
                         </div>
                         <button
@@ -2235,7 +2238,7 @@ function App() {
                               color: (c.deductions === 0) ? '#fb4934' : '#fabd2f',
                               fontWeight: 'bold'
                             }}>
-                              {(c.deductions ?? 0)} deductions
+                              {((c as any).updates !== undefined ? (c as any).updates : (c.deductions ?? 0))} updates
                             </span>
 
                             {/* % Complete */}

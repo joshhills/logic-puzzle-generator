@@ -51,9 +51,9 @@ export class GenerativeSession {
         return clues.slice(0, limit);
     }
 
-    public getScoredMatchingClues(constraints?: ClueGenerationConstraints, limit: number = 50): { clue: Clue, score: number, deductions: number, isDirectAnswer: boolean, percentComplete: number }[] {
+    public getScoredMatchingClues(constraints?: ClueGenerationConstraints, limit: number = 50): { clue: Clue, score: number, deductions: number, updates: number, isDirectAnswer: boolean, percentComplete: number }[] {
         const validClues = this.filterClues(constraints);
-        const results: { clue: Clue, score: number, deductions: number, isDirectAnswer: boolean, percentComplete: number }[] = [];
+        const results: { clue: Clue, score: number, deductions: number, updates: number, isDirectAnswer: boolean, percentComplete: number }[] = [];
 
         const minDeductions = constraints?.minDeductions ?? 0;
         const maxDeductions = constraints?.maxDeductions;
@@ -95,7 +95,9 @@ export class GenerativeSession {
                 percentComplete = 100;
             }
 
-            results.push({ clue, score, deductions, isDirectAnswer, percentComplete });
+            const updates = tempGrid.compareVisualState(this.grid);
+
+            results.push({ clue, score, deductions, updates, isDirectAnswer, percentComplete });
         }
 
         return results.sort((a, b) => b.score - a.score).slice(0, limit);
@@ -166,6 +168,18 @@ export class GenerativeSession {
             (clue as any).percentComplete = Math.min(100, Math.max(0, (progress / range) * 100));
         } else {
             (clue as any).percentComplete = 100;
+        }
+
+        // Calculate Visual Updates (Red Crosses + Green Checks)
+        // We compare the grid before (this.historyStack.last?) application
+        // Wait, 'this.grid' is ALREADY modified here.
+        // We saved the previous state in historyStack.
+        const prevGrid = this.historyStack[this.historyStack.length - 1];
+        if (prevGrid) {
+            (clue as any).updates = this.grid.compareVisualState(prevGrid);
+        } else {
+            // Should not happen unless history empty? Initial state?
+            (clue as any).updates = (clue as any).deductions; // Fallback
         }
 
         this.proofChain.push(clue);
