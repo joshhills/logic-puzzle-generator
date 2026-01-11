@@ -127,7 +127,7 @@ export const renderPlainLanguageClue = (clue: Clue, cats: AppCategoryConfig[]) =
             const supFirst = co?.labels?.superlativeFirst || (coVerb === 'has' ? 'lowest amount of' : 'first');
             const supLast = co?.labels?.superlativeLast || (coVerb === 'has' ? 'highest amount of' : 'last');
 
-            const term = (clue.operator === SuperlativeOperator.MIN || clue.operator === SuperlativeOperator.NOT_MAX) ? supFirst : supLast;
+            const term = (clue.operator === SuperlativeOperator.MIN || clue.operator === SuperlativeOperator.NOT_MIN) ? supFirst : supLast;
 
             const isNegated = clue.operator === SuperlativeOperator.NOT_MIN || clue.operator === SuperlativeOperator.NOT_MAX;
 

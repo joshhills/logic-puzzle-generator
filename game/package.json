@@ -1,0 +1,19 @@
+{
+  "name": "game",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "~5.4.0",
+    "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "logic-puzzle-generator": "file:..",
+    "phaser": "^3.90.0"
+  }
+}
