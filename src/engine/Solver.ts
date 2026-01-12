@@ -20,38 +20,39 @@ export class Solver {
      * @param clue - The Clue to apply.
      * @returns An object containing the modified grid and the total count of eliminations made.
      */
-    public applyClue(grid: LogicGrid, clue: Clue): { grid: LogicGrid; deductions: number } {
+    public applyClue(grid: LogicGrid, clue: Clue): { grid: LogicGrid; deductions: number; reasons: import('../types').DeductionReason[] } {
         let deductions = 0;
+        const reasons: import('../types').DeductionReason[] = [];
 
         switch (clue.type) {
             case ClueType.BINARY:
-                deductions += this.applyBinaryClue(grid, clue);
+                deductions += this.applyBinaryClue(grid, clue, reasons);
                 break;
             case ClueType.SUPERLATIVE:
-                deductions += this.applySuperlativeClue(grid, clue as SuperlativeClue);
+                deductions += this.applySuperlativeClue(grid, clue as SuperlativeClue, reasons);
                 break;
             case ClueType.ORDINAL:
-                deductions += this.applyOrdinalClue(grid, clue as OrdinalClue);
+                deductions += this.applyOrdinalClue(grid, clue as OrdinalClue, reasons);
                 break;
             case ClueType.UNARY:
-                deductions += this.applyUnaryClue(grid, clue as UnaryClue);
+                deductions += this.applyUnaryClue(grid, clue as UnaryClue, reasons);
                 break;
             case ClueType.CROSS_ORDINAL:
-                deductions += this.applyCrossOrdinalClue(grid, clue as any); // Cast as any because import might lag or circular deps? no, just strict TS.
+                deductions += this.applyCrossOrdinalClue(grid, clue as any, reasons);
                 break;
         }
 
 
         let newDeductions;
         do {
-            newDeductions = this.runDeductionLoop(grid);
+            newDeductions = this.runDeductionLoop(grid, reasons);
             deductions += newDeductions;
         } while (newDeductions > 0);
 
-        return { grid, deductions };
+        return { grid, deductions, reasons };
     }
 
-    private applyCrossOrdinalClue(grid: LogicGrid, clue: import('./Clue').CrossOrdinalClue): number {
+    private applyCrossOrdinalClue(grid: LogicGrid, clue: import('./Clue').CrossOrdinalClue, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
         const ord1Config = categories.find(c => c.id === clue.ordinal1);
@@ -83,6 +84,11 @@ export class Solver {
                 if (targetVal1 === undefined) {
                     grid.setPossibility(clue.item1Cat, clue.item1Val, clue.ordinal1, cand1.val, false);
                     deductions++;
+                    reasons.push({
+                        type: 'cross_ordinal',
+                        description: `Cross-Ordinal: ${clue.item1Val} cannot be ${cand1.val} because offset ${clue.offset1} goes out of bounds.`,
+                        cells: [{ cat: clue.item1Cat, val: clue.item1Val }, { cat: clue.ordinal1, val: cand1.val }]
+                    });
                     continue;
                 }
 
@@ -105,6 +111,11 @@ export class Solver {
                 if (!supported) {
                     grid.setPossibility(clue.item1Cat, clue.item1Val, clue.ordinal1, cand1.val, false);
                     deductions++;
+                    reasons.push({
+                        type: 'cross_ordinal',
+                        description: `Cross-Ordinal: ${clue.item1Val} as ${cand1.val} finds no compatible ${clue.item2Val} at offset pair.`,
+                        cells: [{ cat: clue.item1Cat, val: clue.item1Val }, { cat: clue.ordinal1, val: cand1.val }]
+                    });
                 }
             }
 
@@ -116,6 +127,11 @@ export class Solver {
                 if (targetVal2 === undefined) {
                     grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
                     deductions++;
+                    reasons.push({
+                        type: 'cross_ordinal',
+                        description: `Cross-Ordinal: ${clue.item2Val} cannot be ${cand2.val} because offset ${clue.offset2} goes out of bounds.`,
+                        cells: [{ cat: clue.item2Cat, val: clue.item2Val }, { cat: clue.ordinal1, val: cand2.val }]
+                    });
                     continue;
                 }
 
@@ -135,6 +151,11 @@ export class Solver {
                 if (!supported) {
                     grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
                     deductions++;
+                    reasons.push({
+                        type: 'cross_ordinal',
+                        description: `Cross-Ordinal: ${clue.item2Val} as ${cand2.val} finds no compatible ${clue.item1Val} at offset pair.`,
+                        cells: [{ cat: clue.item2Cat, val: clue.item2Val }, { cat: clue.ordinal2, val: cand2.val }]
+                    });
                 }
             }
 
@@ -153,6 +174,11 @@ export class Solver {
                     if (grid.getPossibilitiesCount(clue.ordinal1, v1, clue.ordinal2) > 1) {
                         grid.setPossibility(clue.ordinal1, v1, clue.ordinal2, v2, true);
                         deductions++;
+                        reasons.push({
+                            type: 'cross_ordinal',
+                            description: `Cross-Ordinal Link: ${v1} must be ${v2} based on forced offsets.`,
+                            cells: [{ cat: clue.ordinal1, val: v1 }, { cat: clue.ordinal2, val: v2 }]
+                        });
                     }
                 }
             }
@@ -189,6 +215,11 @@ export class Solver {
                     if (grid.isPossible(clue.ordinal1, v1, clue.ordinal2, v2)) {
                         grid.setPossibility(clue.ordinal1, v1, clue.ordinal2, v2, false);
                         deductions++;
+                        reasons.push({
+                            type: 'cross_ordinal',
+                            description: `Cross-Ordinal NOT: ${v1} cannot be ${v2} because positions are forbidden.`,
+                            cells: [{ cat: clue.ordinal1, val: v1 }, { cat: clue.ordinal2, val: v2 }]
+                        });
                     }
                 }
             }
@@ -378,6 +409,11 @@ export class Solver {
                             if (grid.isPossible(clue.ordinal1, v1, clue.ordinal2, v2)) {
                                 grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
                                 deductions++;
+                                reasons.push({
+                                    type: 'cross_ordinal',
+                                    description: `Cross-Ordinal NOT: ${clue.item2Val} cannot be ${cand2.val} because it implies forbidden link to ${v1}.`,
+                                    cells: [{ cat: clue.item2Cat, val: clue.item2Val }, { cat: clue.ordinal2, val: cand2.val }]
+                                });
                             }
                         }
                     }
@@ -396,6 +432,11 @@ export class Solver {
                             if (grid.isPossible(clue.ordinal1, v1, clue.ordinal2, v2)) {
                                 grid.setPossibility(clue.item1Cat, clue.item1Val, clue.ordinal1, cand1.val, false);
                                 deductions++;
+                                reasons.push({
+                                    type: 'cross_ordinal',
+                                    description: `Cross-Ordinal NOT: ${clue.item1Val} cannot be ${cand1.val} because it implies forbidden link to ${v2}.`,
+                                    cells: [{ cat: clue.item1Cat, val: clue.item1Val }, { cat: clue.ordinal1, val: cand1.val }]
+                                });
                             }
                         }
                     }
@@ -406,7 +447,7 @@ export class Solver {
         return deductions;
     }
 
-    private applyUnaryClue(grid: LogicGrid, clue: UnaryClue): number {
+    private applyUnaryClue(grid: LogicGrid, clue: UnaryClue, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
         const ordinalCatConfig = categories.find(c => c.id === clue.ordinalCat);
@@ -424,13 +465,18 @@ export class Solver {
                 if (grid.isPossible(clue.targetCat, clue.targetVal, clue.ordinalCat, ordVal)) {
                     grid.setPossibility(clue.targetCat, clue.targetVal, clue.ordinalCat, ordVal, false);
                     deductions++;
+                    reasons.push({
+                        type: 'unary',
+                        description: `Unary Rule: ${ordVal} eliminated for ${clue.targetVal} because it is ${isEven ? 'not even' : 'not odd'}.`,
+                        cells: [{ cat: clue.targetCat, val: clue.targetVal }, { cat: clue.ordinalCat, val: String(ordVal) }]
+                    });
                 }
             }
         }
         return deductions;
     }
 
-    private applyBinaryClue(grid: LogicGrid, clue: BinaryClue): number {
+    private applyBinaryClue(grid: LogicGrid, clue: BinaryClue, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
         const cat1Config = categories.find(c => c.id === clue.cat1);
@@ -442,6 +488,11 @@ export class Solver {
             // Count the "Positive Confirmation" (Green Check) as a deduction if it wasn't already known
             if (grid.getPossibilitiesCount(clue.cat1, clue.val1, clue.cat2) > 1) {
                 deductions++;
+                reasons.push({
+                    type: 'confirmation',
+                    description: `Directly from clue: ${clue.val1} is ${clue.val2}.`,
+                    cells: [{ cat: clue.cat1, val: clue.val1 }, { cat: clue.cat2, val: clue.val2 }]
+                });
             }
 
             if (grid.isPossible(clue.cat1, clue.val1, clue.cat2, clue.val2)) {
@@ -449,12 +500,16 @@ export class Solver {
             }
             grid.setPossibility(clue.cat1, clue.val1, clue.cat2, clue.val2, true);
 
-
             for (const val of cat2Config.values) {
                 if (val !== clue.val2) {
                     if (grid.isPossible(clue.cat1, clue.val1, clue.cat2, val)) {
                         grid.setPossibility(clue.cat1, clue.val1, clue.cat2, val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'elimination',
+                            description: `Since ${clue.val1} is ${clue.val2}, it cannot be ${val}.`,
+                            cells: [{ cat: clue.cat1, val: clue.val1 }, { cat: clue.cat2, val: val }]
+                        });
                     }
                 }
             }
@@ -463,6 +518,11 @@ export class Solver {
                     if (grid.isPossible(clue.cat1, val, clue.cat2, clue.val2)) {
                         grid.setPossibility(clue.cat1, val, clue.cat2, clue.val2, false);
                         deductions++;
+                        reasons.push({
+                            type: 'elimination',
+                            description: `Since ${clue.val2} is ${clue.val1}, it cannot be ${val}.`,
+                            cells: [{ cat: clue.cat1, val: val }, { cat: clue.cat2, val: clue.val2 }]
+                        });
                     }
                 }
             }
@@ -470,12 +530,17 @@ export class Solver {
             if (grid.isPossible(clue.cat1, clue.val1, clue.cat2, clue.val2)) {
                 grid.setPossibility(clue.cat1, clue.val1, clue.cat2, clue.val2, false);
                 deductions++;
+                reasons.push({
+                    type: 'elimination',
+                    description: `Directly from clue: ${clue.val1} is NOT ${clue.val2}.`,
+                    cells: [{ cat: clue.cat1, val: clue.val1 }, { cat: clue.cat2, val: clue.val2 }]
+                });
             }
         }
         return deductions;
     }
 
-    private runDeductionLoop(grid: LogicGrid): number {
+    private runDeductionLoop(grid: LogicGrid, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
 
@@ -494,6 +559,11 @@ export class Solver {
                                 if (grid.isPossible(cat1.id, otherVal1, cat2.id, val2)) {
                                     grid.setPossibility(cat1.id, otherVal1, cat2.id, val2, false);
                                     deductions++;
+                                    reasons.push({
+                                        type: 'uniqueness',
+                                        description: `Since ${val2} is uniquely ${val1} in ${cat1.id}, it cannot be ${otherVal1}.`,
+                                        cells: [{ cat: cat1.id, val: val1 }, { cat: cat2.id, val: val2 }, { cat: cat1.id, val: otherVal1 }]
+                                    });
                                 }
                             }
                         }
@@ -512,8 +582,13 @@ export class Solver {
                                 if (grid.isPossible(cat1.id, val1, cat3.id, definiteVal3) === false) {
                                     // This indicates a contradiction, but for now we are just making deductions.
                                 } else if (grid.getPossibilitiesCount(cat1.id, val1, cat3.id) > 1) {
-                                    grid.setPossibility(cat1.id, val1, cat3.id, definiteVal3, true);
+                                    grid.setPossibility(cat1.id, val1, cat3.id, definiteVal3, true, /** Context for internal logic if needed */);
                                     deductions++;
+                                    reasons.push({
+                                        type: 'transitivity',
+                                        description: `Since ${cat1.id}:${val1} is ${cat2.id}:${definiteVal2}, and that is ${cat3.id}:${definiteVal3}, ${val1} must be ${definiteVal3}.`,
+                                        cells: [{ cat: cat1.id, val: val1 }, { cat: cat2.id, val: definiteVal2 }, { cat: cat3.id, val: definiteVal3 }]
+                                    });
                                 }
                             }
                         }
@@ -525,6 +600,11 @@ export class Solver {
                                 if (!isPathPossible) {
                                     grid.setPossibility(cat1.id, val1, cat3.id, val3, false);
                                     deductions++;
+                                    reasons.push({
+                                        type: 'transitivity',
+                                        description: `Negative Transitivity: No path exists between ${val1} and ${val3} via ${cat2.id}.`,
+                                        cells: [{ cat: cat1.id, val: val1 }, { cat: cat3.id, val: val3 }]
+                                    });
                                 }
                             }
                         }
@@ -536,7 +616,7 @@ export class Solver {
         return deductions;
     }
 
-    private applyOrdinalClue(grid: LogicGrid, constraint: OrdinalClue): number {
+    private applyOrdinalClue(grid: LogicGrid, constraint: OrdinalClue, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
 
@@ -561,6 +641,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
                         grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item1Val} cannot be ${pval1.val} (idx ${pval1.idx}) because it must be > ${constraint.item2Val}.`,
+                            cells: [{ cat: constraint.item1Cat, val: constraint.item1Val }, { cat: constraint.ordinalCat, val: pval1.val }]
+                        });
                     }
                 }
             }
@@ -571,6 +656,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
                         grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item1Val} cannot be ${pval1.val} (idx ${pval1.idx}) because it must be < ${constraint.item2Val}.`,
+                            cells: [{ cat: constraint.item1Cat, val: constraint.item1Val }, { cat: constraint.ordinalCat, val: pval1.val }]
+                        });
                     }
                 }
             }
@@ -581,6 +671,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
                         grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item1Val} cannot be ${pval1.val} (idx ${pval1.idx}) because it must be <= ${constraint.item2Val}.`,
+                            cells: [{ cat: constraint.item1Cat, val: constraint.item1Val }, { cat: constraint.ordinalCat, val: pval1.val }]
+                        });
                     }
                 }
             }
@@ -591,6 +686,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val)) {
                         grid.setPossibility(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, pval1.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item1Val} cannot be ${pval1.val} (idx ${pval1.idx}) because it must be >= ${constraint.item2Val}.`,
+                            cells: [{ cat: constraint.item1Cat, val: constraint.item1Val }, { cat: constraint.ordinalCat, val: pval1.val }]
+                        });
                     }
                 }
             }
@@ -604,6 +704,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
                         grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item2Val} cannot be ${pval2.val} (idx ${pval2.idx}) because it must be < ${constraint.item1Val}.`,
+                            cells: [{ cat: constraint.item2Cat, val: constraint.item2Val }, { cat: constraint.ordinalCat, val: pval2.val }]
+                        });
                     }
                 }
             }
@@ -614,6 +719,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
                         grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item2Val} cannot be ${pval2.val} (idx ${pval2.idx}) because it must be > ${constraint.item1Val}.`,
+                            cells: [{ cat: constraint.item2Cat, val: constraint.item2Val }, { cat: constraint.ordinalCat, val: pval2.val }]
+                        });
                     }
                 }
             }
@@ -624,6 +734,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
                         grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item2Val} cannot be ${pval2.val} (idx ${pval2.idx}) because it must be >= ${constraint.item1Val}.`,
+                            cells: [{ cat: constraint.item2Cat, val: constraint.item2Val }, { cat: constraint.ordinalCat, val: pval2.val }]
+                        });
                     }
                 }
             }
@@ -634,6 +749,11 @@ export class Solver {
                     if (grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val)) {
                         grid.setPossibility(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, pval2.val, false);
                         deductions++;
+                        reasons.push({
+                            type: 'ordinal',
+                            description: `${constraint.item2Val} cannot be ${pval2.val} (idx ${pval2.idx}) because it must be <= ${constraint.item1Val}.`,
+                            cells: [{ cat: constraint.item2Cat, val: constraint.item2Val }, { cat: constraint.ordinalCat, val: pval2.val }]
+                        });
                     }
                 }
             }
@@ -642,7 +762,7 @@ export class Solver {
         return deductions;
     }
 
-    private applySuperlativeClue(grid: LogicGrid, clue: SuperlativeClue): number {
+    private applySuperlativeClue(grid: LogicGrid, clue: SuperlativeClue, reasons: import('../types').DeductionReason[]): number {
         const categories = (grid as any).categories as CategoryConfig[];
         const ordinalCatConfig = categories.find(c => c.id === clue.ordinalCat);
         if (!ordinalCatConfig || ordinalCatConfig.type !== CategoryType.ORDINAL) return 0;
@@ -678,6 +798,6 @@ export class Solver {
             operator: isNot ? BinaryOperator.IS_NOT : BinaryOperator.IS,
         };
 
-        return this.applyBinaryClue(grid, binaryClue);
+        return this.applyBinaryClue(grid, binaryClue, reasons);
     }
 }

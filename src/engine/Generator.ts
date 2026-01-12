@@ -597,6 +597,9 @@ export class Generator {
             } else {
                 (step.clue as any).percentComplete = 100;
             }
+
+            // Capture Deduction Reasons (XAI)
+            (step.clue as any).reasons = result.reasons;
         }
 
         return {

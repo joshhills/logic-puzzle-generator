@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { Generator, CategoryConfig, CategoryType, Puzzle, LogicGrid, Solver, ClueType, GenerativeSession, Clue, CrossOrdinalOperator, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, ValueLabel } from '../../src/index';
@@ -5,6 +6,8 @@ import { LogicGridPuzzle } from './components/LogicGridPuzzle';
 import { Sidebar } from './components/Sidebar';
 import { CategoryEditor } from './components/CategoryEditor';
 import { Modal } from './components/Modal';
+
+import { usePuzzleTimer } from './hooks/usePuzzleTimer';
 import { SavedGamesModal, SavedPuzzle } from './components/SavedGamesModal';
 import { AppCategoryConfig, CategoryLabels } from './types';
 import { getRecommendedBounds, getRecommendedSweetSpot } from '../../src/engine/DifficultyBounds';
@@ -33,12 +36,12 @@ const generateDefaultCategories = (nCats: number, nItems: number): AppCategoryCo
         values.push(def.values[i]);
       } else {
         // Fallback if nItems > default list (shouldn't happen with max 6, but good safety)
-        values.push(`Item ${i + 1}`);
+        values.push(`Item ${i + 1} `);
       }
     }
 
     newCats.push({
-      id: def ? def.id : `Category ${c + 1}`,
+      id: def ? def.id : `Category ${c + 1} `,
       values: values,
       type: (def && def.type) ? def.type : CategoryType.NOMINAL,
       labels: (def && def.labels) ? { ...def.labels } : {}
@@ -77,6 +80,8 @@ function App() {
 
   // UI Modals
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isTimerResetModalOpen, setIsTimerResetModalOpen] = useState(false);
+
   const [isSavesModalOpen, setIsSavesModalOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -85,6 +90,8 @@ function App() {
   // Clue Removal Modal
   const [clueToRemoveIndex, setClueToRemoveIndex] = useState<number | null>(null);
   const isRemoveModalOpen = clueToRemoveIndex !== null;
+
+
 
   const showAlert = (title: string, message: string) => {
     setAlertState({ isOpen: true, title, message });
@@ -114,7 +121,6 @@ function App() {
   ]);
 
   // Interactive Mode State
-  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
   const [session, setSession] = useState<GenerativeSession | null>(null);
 
   const [interactiveSolved, setInteractiveSolved] = useState(false);
@@ -126,6 +132,8 @@ function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<{ clue: Clue, score: number, deductions: number, updates: number, isDirectAnswer: boolean, percentComplete: number }[]>([]);
   // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
+  const [expandedClueIndex, setExpandedClueIndex] = useState<number | null>(null);
+  // We'll initialize nextClueConstraints with allowedClueTypes when entering mode.
 
   // --- Step 3: Solution State ---
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
@@ -134,6 +142,15 @@ function App() {
   const [viewMode, setViewMode] = useState<'solution' | 'play'>('play');
   const [userPlayState, setUserPlayState] = useState<Record<string, 'T' | 'F'>>({});
   const [checkAnswers, setCheckAnswers] = useState(false);
+
+  // Interactive Mode State
+  const [isInteractiveMode, setIsInteractiveMode] = useState(false);
+
+  // Timer Hook
+  // Active if in Interactive Gen Session OR if in Standard Mode 'Play Mode'
+  // Note: We need to know if we have a puzzle to start timer in standard mode, so we use 'puzzle' existence.
+  const isTimerActive = isInteractiveMode || (!!puzzle && viewMode === 'play');
+  const { seconds, isPaused, resetTimer, togglePause, formatTime, setSeconds } = usePuzzleTimer(isTimerActive);
 
   // Scroll refs
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -252,6 +269,7 @@ function App() {
             // Restore Play Mode
             if (data.viewMode) setViewMode(data.viewMode);
             if (data.userPlayState) setUserPlayState(data.userPlayState);
+            if (data.timerSeconds !== undefined) setSeconds(data.timerSeconds);
           }
         } else {
           console.log("Data version mismatch, defining defaults.");
@@ -282,7 +300,8 @@ function App() {
         categories,
         puzzle: isInteractiveMode ? null : puzzle, // Do not save interactive placeholder puzzle
         viewMode,
-        userPlayState
+        userPlayState,
+        timerSeconds: seconds // Save timer state
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }, 500); // 500ms debounce
@@ -292,7 +311,7 @@ function App() {
     numCats, numItems, categories,
     targetClueCount, useTargetClueCount, seedInput, flavorText,
     targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
-    puzzle, viewMode, userPlayState, isInteractiveMode
+    puzzle, viewMode, userPlayState, isInteractiveMode, seconds
   ]);
 
   // Update max reached step
@@ -402,6 +421,7 @@ function App() {
     // Reset Play Mode
     setUserPlayState({});
     setViewMode('solution');
+    resetTimer(); // Reset timer on structure change
   };
 
 
@@ -441,7 +461,8 @@ function App() {
         targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
       },
       categories,
-      puzzle
+      puzzle,
+      timerSeconds: seconds
     });
   };
 
@@ -456,7 +477,7 @@ function App() {
     activeStep, maxReachedStep, viewMode, userPlayState,
     numCats, numItems, targetClueCount, useTargetClueCount, seedInput, flavorText, puzzleTitle,
     targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
-    categories, puzzle
+    categories, puzzle, seconds
   ]);
 
   const handleQuickSave = () => {
@@ -508,6 +529,7 @@ function App() {
       setPuzzle(data.puzzle || null);
       setViewMode(data.viewMode || 'play');
       setUserPlayState(data.userPlayState || {});
+      setSeconds(data.timerSeconds || 0); // Restore timer
 
       // Sync baseline
       const expectedStateStr = JSON.stringify({
@@ -530,7 +552,8 @@ function App() {
           useSpecificGoal: data.config.useSpecificGoal ?? true
         },
         categories: data.categories || [],
-        puzzle: data.puzzle || null
+        puzzle: data.puzzle || null,
+        timerSeconds: data.timerSeconds || 0
       });
 
       lastSavedState.current = expectedStateStr;
@@ -564,7 +587,7 @@ function App() {
     // If categories swapped, swap values too
     const [vA, vB] = cA === cat1 ? [val1, val2] : [val2, val1];
 
-    const key = `${cA}:${cB}:${vA}:${vB}`;
+    const key = `${cA}:${cB}:${vA}:${vB} `;
 
     // Cycle: Empty -> 'F' -> 'T' -> Empty
     // Current State
@@ -670,6 +693,7 @@ function App() {
           categories: categories,
           targetFact: targetFact as any
         } as any);
+        resetTimer(); // Reset timer on new generation
 
         setSelectedStep(-2);
         setActiveStep(4);
@@ -696,6 +720,7 @@ function App() {
         } else if (type === 'done') {
           const { puzzle } = e.data;
           setPuzzle(puzzle);
+          resetTimer(); // Reset timer on new generation
 
           if (useTargetClueCount && puzzle.clues.length !== targetClueCount) {
             showAlert(
@@ -774,11 +799,12 @@ function App() {
         targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal
       },
       categories,
-      puzzle
+      puzzle,
+      timerSeconds: seconds
     };
 
     const jsonStr = JSON.stringify(state, null, 2);
-    const fileName = `logic-puzzle-${new Date().toISOString().slice(0, 10)}.json`;
+    const fileName = `logic - puzzle - ${new Date().toISOString().slice(0, 10)}.json`;
 
     try {
       // Modern File System Access API
@@ -848,6 +874,7 @@ function App() {
 
           // Puzzle (if any)
           setPuzzle(data.puzzle || null);
+          setSeconds(data.timerSeconds || 0); // Restore timer
 
           showAlert("Success", "Puzzle loaded successfully!");
         } catch (err) {
@@ -1142,7 +1169,7 @@ function App() {
                     appearance: 'none',
                     WebkitAppearance: 'none',
                     MozAppearance: 'none',
-                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                    backgroundImage: `url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3Csvg%3E")`,
                     backgroundRepeat: 'no-repeat',
                     backgroundPosition: 'right 12px center'
                   }}
@@ -1243,6 +1270,7 @@ function App() {
                   setPuzzle(null);
                   setSession(null);
                   setInteractiveSolved(false);
+                  resetTimer(); // Reset timer when switching interactive mode
                 }}
                 style={{ width: '20px', height: '20px' }}
               />
@@ -1374,7 +1402,7 @@ function App() {
                 padding: '12px 24px',
                 backgroundColor: 'transparent',
                 color: isGenerating ? '#444' : '#aaa',
-                border: `1px solid ${isGenerating ? '#222' : '#444'}`,
+                border: `1px solid ${isGenerating ? '#222' : '#444'} `,
                 borderRadius: '6px',
                 fontWeight: 'bold',
                 cursor: isGenerating ? 'not-allowed' : 'pointer',
@@ -2058,7 +2086,7 @@ function App() {
               if (c.type === 0 || c.type === 'BINARY') {
                 const v1 = formatClueValue(c.val1, c.cat1);
                 const v2 = formatClueValue(c.val2, c.cat2);
-                desc = `${v1} is ${c.operator === 0 ? '' : 'NOT '} ${v2}`;
+                desc = `${v1} is ${c.operator === 0 ? '' : 'NOT '} ${v2} `;
               } else if (c.type === 1 || c.type === 'ORDINAL') {
                 const v1 = formatClueValue(c.item1Val, c.item1Cat);
                 const v2 = formatClueValue(c.item2Val, c.item2Cat);
@@ -2075,7 +2103,7 @@ function App() {
                 else if (c.operator === 1) opText = 'HIGHEST';
                 else if (c.operator === 2) opText = 'NOT LOWEST';
                 else if (c.operator === 3) opText = 'NOT HIGHEST';
-                desc = `${v1} is the ${opText} in ${c.ordinalCat}`;
+                desc = `${v1} is the ${opText} in ${c.ordinalCat} `;
               } else if (c.type === 3 || c.type === 'UNARY') {
                 const v1 = formatClueValue(c.targetVal, c.targetCat);
                 desc = `${v1} is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
@@ -2094,6 +2122,8 @@ function App() {
                 desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.ordinal1}) ${relation} the item ${formatOffset(c.offset2)} ${v2} (${c.ordinal2})`;
               }
             }
+
+
 
             const isActive = selectedStep === i;
             const isFuture = selectedStep !== -1 && i > selectedStep;
@@ -2238,14 +2268,62 @@ function App() {
                               color: (c.deductions === 0) ? '#fb4934' : '#fabd2f',
                               fontWeight: 'bold'
                             }}>
-                              {((c as any).updates !== undefined ? (c as any).updates : (c.deductions ?? 0))} updates
+                              {((c as any).updates !== undefined ? (c as any).updates : (c.deductions ?? 0))} {((c as any).updates !== undefined ? (c as any).updates : (c.deductions ?? 0)) === 1 ? 'update' : 'updates'}
                             </span>
 
                             {/* % Complete */}
                             <span style={{ color: '#8ec07c' }}>
                               {Math.round(c.percentComplete ?? 0)}% complete
                             </span>
+
+
+                            {/* Explanation Toggle */}
+                            {((c as any).reasons && (c as any).reasons.length > 0) && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setExpandedClueIndex(expandedClueIndex === i ? null : i); }}
+                                title="Explain Logic"
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  fontSize: '1em',
+                                  padding: '0 5px',
+                                  color: '#83a598',
+                                  opacity: 0.8
+                                }}
+                              >
+                                {expandedClueIndex === i ? '▼' : 'ℹ'}
+                              </button>
+                            )}
                           </div>
+
+                          {/* Explanation List */}
+                          {expandedClueIndex === i && (c as any).reasons && (
+                            <div style={{
+                              marginTop: '5px',
+                              padding: '5px 10px',
+                              backgroundColor: '#3c3836',
+                              borderRadius: '4px',
+                              fontSize: '0.75em',
+                              color: '#ebdbb2',
+                              boxShadow: 'inset 0 0 5px rgba(0,0,0,0.2)'
+                            }}>
+                              {(c as any).reasons.map((r: any, idx: number) => (
+                                <div key={idx} style={{ marginBottom: '4px', borderBottom: idx < (c as any).reasons.length - 1 ? '1px solid #504945' : 'none', paddingBottom: '2px' }}>
+                                  <span style={{
+                                    color: r.type === 'elimination' ? '#fb4934' :
+                                      r.type === 'confirmation' ? '#b8bb26' :
+                                        r.type === 'uniqueness' ? '#d3869b' :
+                                          r.type === 'transitivity' ? '#fabd2f' : '#83a598',
+                                    fontWeight: 'bold',
+                                    textTransform: 'capitalize'
+                                  }}>
+                                    {r.type}:
+                                  </span> {r.description}
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           {/* Redundancy Indicator (Visual styling) */}
                           {c.deductions === 0 && (
@@ -2359,6 +2437,17 @@ function App() {
       />
 
       <Modal
+        isOpen={isTimerResetModalOpen}
+        onClose={() => setIsTimerResetModalOpen(false)}
+        onConfirm={() => {
+          resetTimer();
+          setIsTimerResetModalOpen(false);
+        }}
+        title="Reset Timer"
+        message="Are you sure you want to reset the puzzle timer? This will set it back to 00:00."
+      />
+
+      <Modal
         isOpen={isInfoModalOpen}
         onClose={() => setIsInfoModalOpen(false)}
         title="About Logic Puzzle Generator"
@@ -2428,6 +2517,8 @@ function App() {
       />
 
 
+
+
       <div className="main-content">
 
         {/* Top: Fixed Grid Visualization */}
@@ -2452,6 +2543,55 @@ function App() {
                 color: '#333',
                 overflowX: 'auto'
               }}>
+
+              {/* Timer & Controls */}
+              {isTimerActive && (
+                <div className="print-hide" style={{
+                  position: 'absolute',
+                  top: '10px',
+                  left: '10px',
+                  zIndex: 100,
+                  backgroundColor: '#282828',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid #504945',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
+                }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: '1.2em', color: '#ebdbb2', fontWeight: 'bold' }}>
+                    {formatTime()}
+                  </div>
+                  <button
+                    onClick={togglePause}
+                    title={isPaused ? "Resume" : "Pause"}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#fabd2f',
+                      cursor: 'pointer',
+                      fontSize: '1em'
+                    }}
+                  >
+                    {isPaused ? '▶' : '⏸'}
+                  </button>
+                  <button
+                    onClick={() => setIsTimerResetModalOpen(true)}
+                    title="Reset Timer"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#fb4934',
+                      cursor: 'pointer',
+                      fontSize: '1em'
+                    }}
+                  >
+                    ↺
+                  </button>
+                </div>
+              )}
+
               {/* Header: Stable grid to prevent button jumping */}
               {puzzle && (
                 <div className="print-hide" style={{

@@ -118,3 +118,9 @@ export interface ClueGenerationConstraints {
     // allowedBinaryOperators?: BinaryOperator[];
     // allowNegation?: boolean; 
 }
+
+export interface DeductionReason {
+    type: 'elimination' | 'confirmation' | 'uniqueness' | 'transitivity' | 'clue' | 'unary' | 'ordinal' | 'cross_ordinal';
+    description: string;
+    cells?: { cat: string, val: ValueLabel }[];
+}

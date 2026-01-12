@@ -155,6 +155,7 @@ export class GenerativeSession {
         // Apply it
         const result = this.solver.applyClue(this.grid, clue);
         (clue as any).deductions = result.deductions;
+        (clue as any).reasons = result.reasons;
 
         // Calculate % Complete
         // Grid starts with 'totalPossible' and ends with 'solutionPossible'.
