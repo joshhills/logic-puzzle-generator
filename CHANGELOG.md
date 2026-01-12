@@ -3,6 +3,10 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.1] - 2026-01-12
+### Fixed
+- **Semantics**: Critical fix for negative ordinal clues (e.g., "NOT AFTER" was incorrectly rendering as "has more"). Now correctly renders as "does not have more" or "is not after".
+
 ## [1.3.0] - 2026-01-12
 ### Added
 - **Feature**: Explainable Deductions (XAI). Users can now see "Explain Logic" for every deduction step.

@@ -106,13 +106,35 @@ export const renderPlainLanguageClue = (clue: Clue, cats: AppCategoryConfig[]) =
             const ordBefore = co?.labels?.ordinalBefore || 'before';
             const ordAfter = co?.labels?.ordinalAfter || 'after';
 
-            // Phrasing: "Alice has fewer gold than the suspect Plum" 
-            const opLabel = clue.operator === OrdinalOperator.LESS_THAN ? ordBefore : ordAfter;
+            // Phrasing logic
+            let opLabel = ordAfter; // Default to 'after' / 'greater than'
+            let isNegated = false;
 
-            if (coVerb) {
-                return <>{term1} {verb} {opLabel} {coGroupName} than {term2}.</>;
+            if (clue.operator === OrdinalOperator.LESS_THAN) {
+                opLabel = ordBefore;
+            } else if (clue.operator === OrdinalOperator.NOT_GREATER_THAN) {
+                // NOT >  ==  <=  (Not After)
+                opLabel = ordAfter;
+                isNegated = true;
+            } else if (clue.operator === OrdinalOperator.NOT_LESS_THAN) {
+                // NOT <  ==  >=  (Not Before)
+                opLabel = ordBefore;
+                isNegated = true;
+            }
+
+            if (isNegated) {
+                const verbNeg = coVerb === 'has' ? 'does not have' : (verb === 'is' ? 'is not' : `is not ${verb}`);
+                if (coVerb) {
+                    return <>{term1} {verbNeg} {opLabel} {coGroupName} than {term2}.</>;
+                } else {
+                    return <>{term1} {verbNeg} {opLabel} {term2}.</>;
+                }
             } else {
-                return <>{term1} {verb} {opLabel} {term2}.</>;
+                if (coVerb) {
+                    return <>{term1} {verb} {opLabel} {coGroupName} than {term2}.</>;
+                } else {
+                    return <>{term1} {verb} {opLabel} {term2}.</>;
+                }
             }
         }
         case ClueType.SUPERLATIVE: {
