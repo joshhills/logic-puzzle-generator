@@ -89,9 +89,65 @@ export interface CrossOrdinalClue {
 }
 
 /**
+ * A clue that states a value is strictly between two others on an ordinal scale.
+ * Example: "Alice is younger than Bob but older than Charlie." (Charlie < Alice < Bob)
+ */
+export interface BetweenClue {
+    type: ClueType.BETWEEN;
+    /** The middle entity (the subject of the clue) */
+    targetCat: string;
+    targetVal: ValueLabel;
+    /** The lower bound entity */
+    lowerCat: string;
+    lowerVal: ValueLabel;
+    /** The upper bound entity */
+    upperCat: string;
+    upperVal: ValueLabel;
+    /** The ordinal category used for comparison */
+    ordinalCat: string;
+}
+
+/**
+ * A clue that states two values are adjacent (neighbors) in an ordinal category.
+ * Example: "The Norwegian lives next to the Blue house."
+ */
+export interface AdjacencyClue {
+    type: ClueType.ADJACENCY;
+    item1Cat: string;
+    item1Val: ValueLabel;
+    item2Cat: string;
+    item2Val: ValueLabel;
+    ordinalCat: string;
+}
+
+export interface DisjunctionClue {
+    type: ClueType.OR;
+    clue1: Clue;
+    clue2: Clue;
+}
+
+export interface ArithmeticClue {
+    type: ClueType.ARITHMETIC;
+    item1Cat: string; item1Val: ValueLabel;
+    item2Cat: string; item2Val: ValueLabel;
+    item3Cat: string; item3Val: ValueLabel;
+    item4Cat: string; item4Val: ValueLabel;
+    ordinalCat: string;
+}
+
+/**
  * Union type representing any valid clue.
  */
-export type Clue = BinaryClue | OrdinalClue | SuperlativeClue | UnaryClue | CrossOrdinalClue;
+export type Clue =
+    | BinaryClue
+    | OrdinalClue
+    | CrossOrdinalClue
+    | SuperlativeClue
+    | UnaryClue
+    | BetweenClue
+    | AdjacencyClue
+    | DisjunctionClue
+    | ArithmeticClue;
 
 /**
  * Extension for clues with metadata attached during generation/solving.

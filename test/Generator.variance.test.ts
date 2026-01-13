@@ -11,6 +11,7 @@ describe('Generator Variance Check', () => {
             { id: 'Name', type: CategoryType.NOMINAL, values: ['Alice', 'Bob', 'Charlie'] },
             { id: 'Genre', type: CategoryType.NOMINAL, values: ['Horror', 'Sci-Fi', 'Comedy'] },
             { id: 'Age', type: CategoryType.ORDINAL, values: [10, 20, 30] },
+            { id: 'Height', type: CategoryType.ORDINAL, values: [150, 160, 170] },
         ];
 
         const target: TargetFact = {

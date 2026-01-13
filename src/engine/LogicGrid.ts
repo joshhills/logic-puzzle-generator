@@ -257,4 +257,24 @@ export class LogicGrid {
         }
         return updates;
     }
+    /**
+     * Checks if the grid is in a valid state (no cell has 0 possibilities).
+     */
+    public isValid(): boolean {
+        for (const [cat1Id, cat1Map] of this.grid) {
+            for (const [val1, val1Map] of cat1Map) {
+                for (const [cat2Id, boolArr] of val1Map) {
+                    let hasPossibility = false;
+                    for (let i = 0; i < boolArr.length; i++) {
+                        if (boolArr[i]) {
+                            hasPossibility = true;
+                            break;
+                        }
+                    }
+                    if (!hasPossibility) return false;
+                }
+            }
+        }
+        return true;
+    }
 }

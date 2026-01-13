@@ -1,6 +1,7 @@
+
 import React from 'react';
 import { AppCategoryConfig, CategoryLabels } from '../types';
-import { CategoryType, Clue, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter } from '../../../src/index';
+import { CategoryType, Clue, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, AdjacencyClue, BetweenClue, CrossOrdinalOperator, DisjunctionClue, ArithmeticClue } from '../../../src/index';
 import { renderPlainLanguageClue } from '../utils/clueRenderer';
 
 interface StoryEditorProps {
@@ -110,12 +111,12 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                     <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                         <input
                                             type="checkbox"
-                                            id={`possessive-${i}`}
+                                            id={`possessive - ${i} `}
                                             checked={cat.labels?.isPossessive ?? false}
                                             onChange={(e) => onLabelChange(i, 'isPossessive', e.target.checked)}
                                             style={{ cursor: 'pointer' }}
                                         />
-                                        <label htmlFor={`possessive-${i}`} style={{ fontSize: '0.8em', color: '#ccc', cursor: 'pointer' }}>
+                                        <label htmlFor={`possessive - ${i} `} style={{ fontSize: '0.8em', color: '#ccc', cursor: 'pointer' }}>
                                             Is possessive
                                             <span style={{ color: '#888', marginLeft: '5px' }}>
                                                 {(() => {
@@ -341,6 +342,74 @@ export const StoryEditor: React.FC<StoryEditorProps> = ({ categories, onLabelCha
                                 ordinalCat: ordCat.id
                             };
                             previews.push({ type: 'Unary', content: renderPlainLanguageClue(fakeClue, cats) });
+                        }
+
+                        // 6. Adjacency
+                        if (ordCat && cats.length >= 2) {
+                            const otherCat = cats.find(c => c.id !== ordCat.id)!;
+                            const fakeClue: AdjacencyClue = {
+                                type: ClueType.ADJACENCY,
+                                item1Cat: otherCat.id,
+                                item1Val: otherCat.values[0],
+                                item2Cat: otherCat.id,
+                                item2Val: otherCat.values[1],
+                                ordinalCat: ordCat.id
+                            };
+                            previews.push({ type: 'Adjacency', content: renderPlainLanguageClue(fakeClue, cats) });
+                        }
+
+                        // 7. Between (Requires 3 values)
+                        if (ordCat && cats.length >= 2 && ordCat.values.length >= 3) {
+                            const otherCat = cats.find(c => c.id !== ordCat.id)!;
+                            // Just use same category for items if needed or mix?
+                            // Between logic usually: Target between Lower and Upper.
+                            const fakeClue: BetweenClue = {
+                                type: ClueType.BETWEEN,
+                                targetCat: otherCat.id,
+                                targetVal: otherCat.values[1],
+                                lowerCat: otherCat.id,
+                                lowerVal: otherCat.values[0],
+                                upperCat: otherCat.id,
+                                upperVal: otherCat.values[2], // Assuming 3 values exist
+                                ordinalCat: ordCat.id
+                            };
+                            previews.push({ type: 'Between', content: renderPlainLanguageClue(fakeClue, cats) });
+                        }
+
+                        // 8. Disjunction (OR)
+                        if (cats.length >= 2) {
+                            const c1 = cats[0];
+                            const c2 = cats[1];
+                            const fakeOr: DisjunctionClue = {
+                                type: ClueType.OR,
+                                clue1: {
+                                    type: ClueType.BINARY,
+                                    cat1: c1.id, val1: c1.values[0],
+                                    cat2: c2.id, val2: c2.values[0],
+                                    operator: BinaryOperator.IS
+                                },
+                                clue2: {
+                                    type: ClueType.BINARY,
+                                    cat1: c1.id, val1: c1.values[1],
+                                    cat2: c2.id, val2: c2.values[1],
+                                    operator: BinaryOperator.IS
+                                }
+                            };
+                            previews.push({ type: 'Either / Or', content: renderPlainLanguageClue(fakeOr, cats) });
+                        }
+
+                        // 9. Arithmetic
+                        if (ordCat && cats.length >= 2 && ordCat.values.length >= 4) {
+                            const itemCat = cats.find(c => c.id !== ordCat.id)!;
+                            const fakeAr: ArithmeticClue = {
+                                type: ClueType.ARITHMETIC,
+                                item1Cat: itemCat.id, item1Val: itemCat.values[0],
+                                item2Cat: itemCat.id, item2Val: itemCat.values[1],
+                                item3Cat: itemCat.id, item3Val: itemCat.values[2],
+                                item4Cat: itemCat.id, item4Val: itemCat.values[3],
+                                ordinalCat: ordCat.id
+                            };
+                            previews.push({ type: 'Arithmetic', content: renderPlainLanguageClue(fakeAr, cats) });
                         }
 
                         if (previews.length === 0) return <div style={{ color: '#666', fontStyle: 'italic' }}>Define more categories to see previews.</div>;

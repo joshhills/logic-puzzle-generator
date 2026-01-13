@@ -1326,6 +1326,7 @@ function App() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '15px' }}>
               {[
                 { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                { title: 'Positional / Relative', types: [ClueType.ADJACENCY, ClueType.BETWEEN] },
                 { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
               ].map((group) => (
                 <div key={group.title} style={{ marginRight: '20px', marginBottom: '10px' }}>
@@ -1337,9 +1338,11 @@ function App() {
                         { type: ClueType.ORDINAL, label: 'Ordinal (Before/After)' },
                         { type: ClueType.SUPERLATIVE, label: 'Superlative (First/Last)' },
                         { type: ClueType.UNARY, label: 'Unary (Values)' },
-                        { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' }
+                        { type: ClueType.CROSS_ORDINAL, label: 'Cross-Ordinal' },
+                        { type: ClueType.ADJACENCY, label: 'Adjacency (Next to)' },
+                        { type: ClueType.BETWEEN, label: 'Between' }
                       ].find(o => o.type === type)!;
-                      const isOrdinalDependent = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL].includes(opt.type);
+                      const isOrdinalDependent = [ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.UNARY, ClueType.CROSS_ORDINAL, ClueType.ADJACENCY, ClueType.BETWEEN].includes(opt.type);
                       const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
 
                       const hasValidUnaryCategory = categories.some(cat => {
@@ -1363,7 +1366,7 @@ function App() {
                             disabled={isDisabled}
                             onChange={(e) => {
                               let newAllowed = e.target.checked ? [...allowedClueTypes, opt.type] : allowedClueTypes.filter(t => t !== opt.type);
-                              const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+                              const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL, ClueType.ADJACENCY, ClueType.BETWEEN];
                               const hasStrong = newAllowed.some(t => strongTypes.includes(t));
                               if (newAllowed.length === 0 || !hasStrong) {
                                 showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one identity-resolving clue type (Core Clues).");
@@ -1693,6 +1696,8 @@ function App() {
                 <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
                   {[
                     { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                    { title: 'Positional / Relative', types: [ClueType.ADJACENCY, ClueType.BETWEEN] },
+                    { title: 'Complex Logic', types: [ClueType.OR, ClueType.ARITHMETIC] },
                     { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
                   ].map((group) => (
                     <div key={group.title} style={{ minWidth: '200px' }}>
@@ -1721,7 +1726,7 @@ function App() {
                               isDisabled = true;
                               disabledReason = '(Req. Mixed Odd/Even)';
                             }
-                          } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE].includes(type)) {
+                          } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.ADJACENCY, ClueType.BETWEEN, ClueType.ARITHMETIC].includes(type)) {
                             if (ordinalCount < 1) {
                               isDisabled = true;
                               disabledReason = '(Req. Ordinal Cat)';
@@ -1744,7 +1749,7 @@ function App() {
                                   let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
 
                                   // Validation: Ensure at least one Core type is selected
-                                  const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL];
+                                  const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL, ClueType.ADJACENCY, ClueType.BETWEEN];
                                   const hasStrong = newAllowed.some(t => strongTypes.includes(t));
 
                                   if (newAllowed.length > 0 && !hasStrong) {
@@ -2086,7 +2091,7 @@ function App() {
               if (c.type === 0 || c.type === 'BINARY') {
                 const v1 = formatClueValue(c.val1, c.cat1);
                 const v2 = formatClueValue(c.val2, c.cat2);
-                desc = `${v1} is ${c.operator === 0 ? '' : 'NOT '} ${v2} `;
+                desc = `${v1} (${c.cat1}) is ${c.operator === 0 ? '' : 'NOT '} ${v2} (${c.cat2})`;
               } else if (c.type === 1 || c.type === 'ORDINAL') {
                 const v1 = formatClueValue(c.item1Val, c.item1Cat);
                 const v2 = formatClueValue(c.item2Val, c.item2Cat);
@@ -2095,7 +2100,7 @@ function App() {
                 else if (c.operator === 1) opText = 'BEFORE';
                 else if (c.operator === 2) opText = 'NOT AFTER'; // <=
                 else if (c.operator === 3) opText = 'NOT BEFORE'; // >=
-                desc = `${v1} is ${opText} ${v2} (${c.ordinalCat})`;
+                desc = `${v1} (${c.item1Cat}) is ${opText} ${v2} (${c.item2Cat}) in ${c.ordinalCat}`;
               } else if (c.type === 2 || c.type === 'SUPERLATIVE') {
                 const v1 = formatClueValue(c.targetVal, c.targetCat);
                 let opText = '';
@@ -2103,10 +2108,10 @@ function App() {
                 else if (c.operator === 1) opText = 'HIGHEST';
                 else if (c.operator === 2) opText = 'NOT LOWEST';
                 else if (c.operator === 3) opText = 'NOT HIGHEST';
-                desc = `${v1} is the ${opText} in ${c.ordinalCat} `;
+                desc = `${v1} (${c.targetCat}) is the ${opText} in ${c.ordinalCat} `;
               } else if (c.type === 3 || c.type === 'UNARY') {
                 const v1 = formatClueValue(c.targetVal, c.targetCat);
-                desc = `${v1} is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
+                desc = `${v1} (${c.targetCat}) is ${(c.filter === 0 || c.filter === 'IS_ODD') ? 'ODD' : 'EVEN'} (${c.ordinalCat})`;
               } else if (c.type === 4 || c.type === 'CROSS_ORDINAL') {
                 const v1 = formatClueValue(c.item1Val, c.item1Cat);
                 const v2 = formatClueValue(c.item2Val, c.item2Cat);
@@ -2117,9 +2122,29 @@ function App() {
                   if (offset < 0) return `${Math.abs(offset)} positions BEFORE`;
                   return `${offset} positions AFTER`;
                 };
-                const isNot = c.operator === 1; // 1 = NOT_MATCH (roughly, check enum)
+                const isNot = c.operator === 1; // 1 = NOT_MATCH
                 const relation = isNot ? 'is NOT' : 'is';
-                desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.ordinal1}) ${relation} the item ${formatOffset(c.offset2)} ${v2} (${c.ordinal2})`;
+                // "Revolver (Weapon)'s Rank in Age matches..."
+                desc = `The item ${formatOffset(c.offset1)} ${v1} (${c.item1Cat}) in ${c.ordinal1} ${relation} the item ${formatOffset(c.offset2)} ${v2} (${c.item2Cat}) in ${c.ordinal2}`;
+              } else if (c.type === 5 || c.type === 'BETWEEN') {
+                const t = formatClueValue(c.targetVal, c.targetCat);
+                const l = formatClueValue(c.lowerVal, c.lowerCat);
+                const h = formatClueValue(c.upperVal, c.upperCat);
+                desc = `${t} (${c.targetCat}) is between ${l} (${c.lowerCat}) and ${h} (${c.upperCat}) in ${c.ordinalCat}`;
+              } else if (c.type === 6 || c.type === 'ADJACENCY') {
+                const v1 = formatClueValue(c.item1Val, c.item1Cat);
+                const v2 = formatClueValue(c.item2Val, c.item2Cat);
+                desc = `${v1} (${c.item1Cat}) is next to ${v2} (${c.item2Cat}) in ${c.ordinalCat}`;
+              } else if (c.type === 7 || c.type === 'OR') {
+                const c1Type = (c.clue1 as any).type;
+                const c2Type = (c.clue2 as any).type;
+                desc = `Either [Type ${c1Type}] OR [Type ${c2Type}]`;
+              } else if (c.type === 8 || c.type === 'ARITHMETIC') {
+                const v1 = formatClueValue(c.item1Val, c.item1Cat);
+                const v2 = formatClueValue(c.item2Val, c.item2Cat);
+                const v3 = formatClueValue(c.item3Val, c.item3Cat);
+                const v4 = formatClueValue(c.item4Val, c.item4Cat);
+                desc = `Diff(${v1} (${c.item1Cat}), ${v2} (${c.item2Cat})) == Diff(${v3} (${c.item3Cat}), ${v4} (${c.item4Cat})) in ${c.ordinalCat}`;
               }
             }
 

@@ -1,5 +1,5 @@
 import { CategoryConfig, CategoryType, ValueLabel, Solution, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, CrossOrdinalOperator } from '../types';
-import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue } from './Clue';
+import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, BetweenClue, AdjacencyClue, DisjunctionClue, ArithmeticClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 
 /**
@@ -38,7 +38,20 @@ export class Solver {
                 deductions += this.applyUnaryClue(grid, clue as UnaryClue, reasons);
                 break;
             case ClueType.CROSS_ORDINAL:
+            case ClueType.CROSS_ORDINAL:
                 deductions += this.applyCrossOrdinalClue(grid, clue as any, reasons);
+                break;
+            case ClueType.BETWEEN:
+                deductions += this.applyBetweenClue(grid, clue as BetweenClue, reasons);
+                break;
+            case ClueType.ADJACENCY:
+                deductions += this.applyAdjacencyClue(grid, clue as AdjacencyClue, reasons);
+                break;
+            case ClueType.OR:
+                deductions += this.applyDisjunctionClue(grid, clue as DisjunctionClue, reasons);
+                break;
+            case ClueType.ARITHMETIC:
+                deductions += this.applyArithmeticClue(grid, clue as ArithmeticClue, reasons);
                 break;
         }
 
@@ -476,6 +489,92 @@ export class Solver {
         return deductions;
     }
 
+    private applyAdjacencyClue(grid: LogicGrid, clue: AdjacencyClue, reasons: import('../types').DeductionReason[]): number {
+        let deductions = 0;
+        const categories = (grid as any).categories as CategoryConfig[];
+        const ordCategory = categories.find(c => c.id === clue.ordinalCat);
+        if (!ordCategory || ordCategory.type !== CategoryType.ORDINAL) return 0;
+
+        // Items must be adjacent in the sorted unique values list.
+        const ordValues = ordCategory.values as number[]; // Validated elsewhere
+        const valToIndex = new Map<number, number>();
+        ordValues.forEach((v, i) => valToIndex.set(v, i));
+
+        const getNeighbors = (val: number): number[] => {
+            const idx = valToIndex.get(val);
+            if (idx === undefined) return [];
+            const neighbors: number[] = [];
+            if (idx > 0) neighbors.push(ordValues[idx - 1]);
+            if (idx < ordValues.length - 1) neighbors.push(ordValues[idx + 1]);
+            return neighbors;
+        };
+
+        const eliminations = (
+            itemCat: string, itemVal: ValueLabel,
+            neighborCat: string, neighborVal: ValueLabel,
+            targetNote: string
+        ) => {
+            let localDeductions = 0;
+            // Iterate over all possible values V1 for itemCat:itemVal
+            for (const v1 of ordValues) {
+                if (grid.isPossible(itemCat, itemVal, clue.ordinalCat, v1)) {
+                    // Check if ANY neighbor V2 is possible for neighborCat:neighborVal
+                    const neighbors = getNeighbors(v1);
+                    const canMatch = neighbors.some(v2 => grid.isPossible(neighborCat, neighborVal, clue.ordinalCat, v2));
+
+                    if (!canMatch) {
+                        // Eliminate V1
+                        grid.setPossibility(itemCat, itemVal, clue.ordinalCat, v1, false);
+                        localDeductions++;
+                        reasons.push({
+                            type: 'ordinal', // reused or add 'adjacency' type
+                            description: `Adjacency: ${v1} eliminated for ${itemVal} because it represents ${targetNote}, and no valid adjacent value exists for ${neighborVal}.`,
+                            cells: [{ cat: itemCat, val: itemVal }, { cat: clue.ordinalCat, val: String(v1) }]
+                        });
+                    }
+                }
+            }
+            return localDeductions;
+        };
+
+        deductions += eliminations(clue.item1Cat, clue.item1Val, clue.item2Cat, clue.item2Val, "Item 1");
+        deductions += eliminations(clue.item2Cat, clue.item2Val, clue.item1Cat, clue.item1Val, "Item 2");
+
+        return deductions;
+    }
+
+    private applyBetweenClue(grid: LogicGrid, clue: BetweenClue, reasons: import('../types').DeductionReason[]): number {
+        let deductions = 0;
+
+        // Decompose into two Ordinal clues:
+        // 1. Middle > Lower
+        const lowerClue: OrdinalClue = {
+            type: ClueType.ORDINAL,
+            operator: OrdinalOperator.GREATER_THAN,
+            item1Cat: clue.targetCat,
+            item1Val: clue.targetVal,
+            item2Cat: clue.lowerCat,
+            item2Val: clue.lowerVal,
+            ordinalCat: clue.ordinalCat
+        };
+
+        // 2. Upper > Middle
+        const upperClue: OrdinalClue = {
+            type: ClueType.ORDINAL,
+            operator: OrdinalOperator.GREATER_THAN,
+            item1Cat: clue.upperCat,
+            item1Val: clue.upperVal,
+            item2Cat: clue.targetCat,
+            item2Val: clue.targetVal,
+            ordinalCat: clue.ordinalCat
+        };
+
+        deductions += this.applyOrdinalClue(grid, lowerClue, reasons);
+        deductions += this.applyOrdinalClue(grid, upperClue, reasons);
+
+        return deductions;
+    }
+
     private applyBinaryClue(grid: LogicGrid, clue: BinaryClue, reasons: import('../types').DeductionReason[]): number {
         let deductions = 0;
         const categories = (grid as any).categories as CategoryConfig[];
@@ -498,7 +597,6 @@ export class Solver {
             if (grid.isPossible(clue.cat1, clue.val1, clue.cat2, clue.val2)) {
                 // This is not a deduction, but a fact application. Still, we need to eliminate other possibilities.
             }
-            grid.setPossibility(clue.cat1, clue.val1, clue.cat2, clue.val2, true);
 
             for (const val of cat2Config.values) {
                 if (val !== clue.val2) {
@@ -799,5 +897,136 @@ export class Solver {
         };
 
         return this.applyBinaryClue(grid, binaryClue, reasons);
+    }
+
+    private applyDisjunctionClue(grid: LogicGrid, clue: DisjunctionClue, reasons: import('../types').DeductionReason[]): number {
+        // If one sub-clue is impossible (contradicted by current grid), enforcing the other is required.
+        const impossible1 = this.isClueContradicted(grid, clue.clue1);
+        const impossible2 = this.isClueContradicted(grid, clue.clue2);
+
+        if (impossible1 && impossible2) {
+            return 0; // Both impossible -> Contradiction.
+        }
+
+        if (impossible1) {
+            reasons.push({
+                type: 'disjunction', // You might need to add this to DeductionReason type if strict checking exists, or cast as any.
+                description: `Disjunction Resolved: First option is impossible, so the second option must be true.`,
+            });
+            const result = this.applyClue(grid, clue.clue2);
+            // Merge reasons?
+            reasons.push(...result.reasons);
+            return result.deductions;
+        }
+
+        if (impossible2) {
+            reasons.push({
+                type: 'disjunction',
+                description: `Disjunction Resolved: Second option is impossible, so the first option must be true.`,
+            });
+            const result = this.applyClue(grid, clue.clue1);
+            reasons.push(...result.reasons);
+            return result.deductions;
+        }
+
+        return 0; // Ambiguous
+    }
+
+    private isClueContradicted(grid: LogicGrid, clue: Clue): boolean {
+        // We clone the grid and apply the clue.
+        // If the resulting grid is invalid (any cell has 0 possibilities), then the clue is contradicted.
+        const trialGrid = grid.clone();
+        this.applyClue(trialGrid, clue);
+        return !trialGrid.isValid();
+    }
+
+    private applyArithmeticClue(grid: LogicGrid, clue: ArithmeticClue, reasons: import('../types').DeductionReason[]): number {
+        let deductions = 0;
+        const categories = (grid as any).categories as CategoryConfig[];
+        const ordCategory = categories.find(c => c.id === clue.ordinalCat);
+        if (!ordCategory || ordCategory.type !== CategoryType.ORDINAL) return 0;
+        const ordValues = ordCategory.values as number[];
+
+        // We need to find all valid tuples (v1, v2, v3, v4) such that |v1 - v2| == |v3 - v4|
+        // AND intersection of possibilities in grid is valid.
+
+        // 1. Collect potential values for each item
+        const getPossibilities = (cat: string, val: ValueLabel) =>
+            ordValues.filter(v => grid.isPossible(cat, val, clue.ordinalCat, v));
+
+        const p1 = getPossibilities(clue.item1Cat, clue.item1Val);
+        const p2 = getPossibilities(clue.item2Cat, clue.item2Val);
+        const p3 = getPossibilities(clue.item3Cat, clue.item3Val);
+        const p4 = getPossibilities(clue.item4Cat, clue.item4Val);
+
+        // 2. Identify valid sub-sets
+        const valid1 = new Set<number>();
+        const valid2 = new Set<number>();
+        const valid3 = new Set<number>();
+        const valid4 = new Set<number>();
+
+        // Optimized iteration
+        // Iterate pairs (v1, v2) first. Calculate diff D.
+        // Then check if any pair (v3, v4) exists with diff D.
+        // If so, v1, v2 are valid. v3, v4 are valid.
+
+        const diffsAB = new Map<number, { v1: number, v2: number }[]>();
+        for (const v1 of p1) {
+            for (const v2 of p2) {
+                // If item1Cat is same as item2Cat (e.g. 2 properties on same item), check if allowed?
+                // Assuming items are distinct. If same item, valid only if v1=v2 (Diff 0).
+                const diff = Math.abs(v1 - v2);
+                if (!diffsAB.has(diff)) diffsAB.set(diff, []);
+                diffsAB.get(diff)!.push({ v1, v2 });
+            }
+        }
+
+        const diffsCD = new Map<number, { v3: number, v4: number }[]>();
+        for (const v3 of p3) {
+            for (const v4 of p4) {
+                const diff = Math.abs(v3 - v4);
+                if (!diffsCD.has(diff)) diffsCD.set(diff, []);
+                diffsCD.get(diff)!.push({ v3, v4 });
+            }
+        }
+
+        // Intersect diff sets
+        for (const [diff, pairsAB] of diffsAB.entries()) {
+            const pairsCD = diffsCD.get(diff);
+            if (pairsCD) {
+                // This difference is viable!
+                // Mark all involved values as valid candidates.
+                pairsAB.forEach(p => { valid1.add(p.v1); valid2.add(p.v2); });
+                pairsCD.forEach(p => { valid3.add(p.v3); valid4.add(p.v4); });
+            }
+        }
+
+        // 3. Prune invalid possibilities
+        const prune = (cat: string, val: ValueLabel, candidates: Set<number>, initial: number[]) => {
+            let localDeductions = 0;
+            for (const v of initial) {
+                if (!candidates.has(v)) {
+                    if (grid.isPossible(cat, val, clue.ordinalCat, v)) {
+                        grid.setPossibility(cat, val, clue.ordinalCat, v, false);
+                        localDeductions++;
+                    }
+                }
+            }
+            if (localDeductions > 0) {
+                reasons.push({
+                    type: 'clue', // Or arithmetic
+                    description: `Arithmetic Constraint: Value ${val} in ${cat} restricted to [${Array.from(candidates).join(', ')}] to satisfy equal difference.`,
+                    cells: [{ cat, val }]
+                });
+            }
+            return localDeductions;
+        };
+
+        deductions += prune(clue.item1Cat, clue.item1Val, valid1, p1);
+        deductions += prune(clue.item2Cat, clue.item2Val, valid2, p2);
+        deductions += prune(clue.item3Cat, clue.item3Val, valid3, p3);
+        deductions += prune(clue.item4Cat, clue.item4Val, valid4, p4);
+
+        return deductions;
     }
 }

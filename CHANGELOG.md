@@ -3,12 +3,24 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.2] - 2026-01-12
+### Fixed
+- **Polish**: Comprehensive grammar update for all clue types (added subject prefixes like "the suspect who is...").
+- **Polish**: Resolved ambiguity in technical clue descriptions by explicitly listing category names (e.g. "18 (Age)").
+- **Bug**: Fixed "is not was" grammar error for negative Ordinal, Superlative, and Binary clues.
+- **Bug**: Fixed "Between" clue logic to correctly handle unsorted bounds and prioritize possession phrasing.
+
 ## [1.3.1] - 2026-01-12
 ### Fixed
 - **Semantics**: Critical fix for negative ordinal clues (e.g., "NOT AFTER" was incorrectly rendering as "has more"). Now correctly renders as "does not have more" or "is not after".
 
 ## [1.3.0] - 2026-01-12
 ### Added
+- **Adjacency Clue Type**: "X is next to Y".
+- **Between Clue Type**: "X is between Y and Z".
+- **Disjunction Clue Type**: "Either A OR B".
+- **Arithmetic Clue Type**: "Difference between A and B equals difference between C and D".
+- **Live Clue Preview**: Added previews for all advanced clue types in Story Editor.
 - **Feature**: Explainable Deductions (XAI). Users can now see "Explain Logic" for every deduction step.
 - **Feature**: Puzzle Play Timer. Track your solve time with Pause/Resume/Reset relative to the session.
 - **UI**: Added Custom Modals for Timer Reset to replace native browser alerts.

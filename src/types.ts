@@ -54,6 +54,14 @@ export enum ClueType {
     UNARY,
     /** Expresses a relationship between relative positions in two different ordinal categories. */
     CROSS_ORDINAL,
+    /** Expresses that a value is strictly between two other values on an ordinal scale. */
+    BETWEEN,
+    /** Expresses that two values are adjacent (indices differ by 1) on an ordinal scale. */
+    ADJACENCY,
+    /** Expresses valid disjunction: At least one of the sub-clues is true. */
+    OR,
+    /** Expresses that the difference between two values is equal to the difference between two other values. */
+    ARITHMETIC,
 }
 
 export enum CrossOrdinalOperator {
@@ -120,7 +128,7 @@ export interface ClueGenerationConstraints {
 }
 
 export interface DeductionReason {
-    type: 'elimination' | 'confirmation' | 'uniqueness' | 'transitivity' | 'clue' | 'unary' | 'ordinal' | 'cross_ordinal';
+    type: 'elimination' | 'confirmation' | 'uniqueness' | 'transitivity' | 'clue' | 'unary' | 'ordinal' | 'cross_ordinal' | 'disjunction' | 'between';
     description: string;
     cells?: { cat: string, val: ValueLabel }[];
 }

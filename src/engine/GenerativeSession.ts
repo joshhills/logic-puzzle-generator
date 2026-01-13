@@ -105,7 +105,7 @@ export class GenerativeSession {
 
     public useClue(clue: Clue): { remaining: number, solved: boolean } {
         // Validate against solution (Anti-Cheat / Logic Guard)
-        const isConsistent = this.generator.checkClueConsistency(clue, this.solution, this.reverseSolution, this.valueMap);
+        const isConsistent = this.generator.checkClueConsistency(clue, this.solution, this.reverseSolution, this.valueMap, this.categories);
         if (!isConsistent) {
             throw new Error("Invalid Clue: This clue contradicts the puzzle solution.");
         }

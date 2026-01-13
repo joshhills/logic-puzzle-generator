@@ -1,6 +1,6 @@
 import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact, ClueGenerationConstraints, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, CrossOrdinalOperator } from '../types';
 import { ConfigurationError } from '../errors';
-import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinalClue } from './Clue';
+import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinalClue, BetweenClue, AdjacencyClue, DisjunctionClue, ArithmeticClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 import { GenerativeSession } from './GenerativeSession';
@@ -405,6 +405,11 @@ export class Generator {
 
                     // If we throw here, we protect the engine from NaN logic.
                     throw new ConfigurationError(`Category '${cat.id}' is ORDINAL but contains non-numeric values.`);
+                }
+
+                const uniqueValues = new Set(cat.values);
+                if (uniqueValues.size !== cat.values.length) {
+                    throw new ConfigurationError(`Category '${cat.id}' is ORDINAL but contains duplicate values. Ordinal values must be unique.`);
                 }
             }
         }
@@ -1151,6 +1156,267 @@ export class Generator {
             }
         }
 
+        // Generate BetweenClues
+        if (isAllowed(ClueType.BETWEEN)) {
+            const ordCategories = categories.filter(c => c.type === CategoryType.ORDINAL);
+            for (const ordCat of ordCategories) {
+                // Iterate Target Category (Middle)
+                for (const targetCat of categories) {
+                    if (targetCat.id === ordCat.id) continue;
+
+                    for (const targetVal of targetCat.values) {
+                        const baseVal = reverseSolution.get(targetCat.id)?.get(targetVal);
+                        if (!baseVal) continue;
+                        const mappings = valueMap.get(baseVal);
+                        if (!mappings) continue;
+                        const targetOrdVal = mappings[ordCat.id] as number;
+
+                        // Iterate Other Category for Lower/Upper candidates
+                        // Optimization: Only check the SAME category as target? Or allow separate?
+                        // Allow separate but maybe limit to 1 other category per clue to avoid explosion?
+                        // Actually, iterating ALL categories is safer for variety, but we sort them.
+
+                        for (const otherCat of categories) {
+                            if (otherCat.id === ordCat.id) continue;
+
+                            const potentialLowers: ValueLabel[] = [];
+                            const potentialUppers: ValueLabel[] = [];
+
+                            for (const otherVal of otherCat.values) {
+                                if (otherCat.id === targetCat.id && otherVal === targetVal) continue;
+
+                                const otherBase = reverseSolution.get(otherCat.id)?.get(otherVal);
+                                if (!otherBase) continue;
+                                const otherMap = valueMap.get(otherBase);
+                                if (!otherMap) continue;
+                                const otherOrd = otherMap[ordCat.id] as number;
+
+                                // Strict inequality
+                                if (otherOrd < targetOrdVal) potentialLowers.push(otherVal);
+                                if (otherOrd > targetOrdVal) potentialUppers.push(otherVal);
+                            }
+
+                            // Combine
+                            for (const lowerVal of potentialLowers) {
+                                for (const upperVal of potentialUppers) {
+                                    clues.push({
+                                        type: ClueType.BETWEEN,
+                                        targetCat: targetCat.id,
+                                        targetVal: targetVal,
+                                        lowerCat: otherCat.id,
+                                        lowerVal: lowerVal,
+                                        upperCat: otherCat.id,
+                                        upperVal: upperVal,
+                                        ordinalCat: ordCat.id
+                                    } as BetweenClue);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate Adjacency Clues
+        if (isAllowed(ClueType.ADJACENCY)) {
+            const ordCategories = categories.filter(c => c.type === CategoryType.ORDINAL);
+            for (const ordCat of ordCategories) {
+                // Determine sorted indices within the value map structure
+                // To support 'Adjacency', we need to check if two values are index-neighbors.
+                // We'll iterate all pairs of (Cat1, Val1) and (Cat2, Val2).
+                // Or smarter: Iterate solution directly.
+
+                // For valid Adjacency, the two entities must map to V1 and V2 such that abs(Index(V1) - Index(V2)) == 1.
+                // Ordinal Values in config are sorted (validated).
+                const ordValues = ordCat.values;
+                const valToIndex = new Map<ValueLabel, number>(); // Using ValueLabel as keys directly? Wait, ordCat.values are number.
+                ordValues.forEach((v, i) => valToIndex.set(v, i));
+
+                // We want to find Subject 1 and Subject 2.
+                // Iterate Categories
+                for (const cat1 of categories) {
+                    if (cat1.id === ordCat.id) continue;
+                    for (const cat2 of categories) {
+                        if (cat2.id === ordCat.id) continue;
+
+                        // Avoid duplicates: If Cat1 == Cat2, only check Val1 < Val2 (by index) to avoid (A,B) and (B,A)
+                        const sameCat = cat1.id === cat2.id;
+
+                        for (let i = 0; i < cat1.values.length; i++) {
+                            const val1 = cat1.values[i];
+
+                            // Optimization for same category iteration
+                            const startJ = sameCat ? i + 1 : 0;
+
+                            for (let j = startJ; j < cat2.values.length; j++) {
+                                const val2 = cat2.values[j];
+
+                                const base1 = reverseSolution.get(cat1.id)?.get(val1);
+                                const base2 = reverseSolution.get(cat2.id)?.get(val2);
+                                if (!base1 || !base2) continue; // Should not happen
+
+                                const map1 = valueMap.get(base1);
+                                const map2 = valueMap.get(base2);
+                                if (!map1 || !map2) continue;
+
+                                const ordVal1 = map1[ordCat.id];
+                                const ordVal2 = map2[ordCat.id];
+
+                                // Check adjacency by index!
+                                const idx1 = valToIndex.get(ordVal1);
+                                const idx2 = valToIndex.get(ordVal2);
+
+                                if (idx1 !== undefined && idx2 !== undefined) {
+                                    if (Math.abs(idx1 - idx2) === 1) {
+                                        clues.push({
+                                            type: ClueType.ADJACENCY,
+                                            item1Cat: cat1.id, item1Val: val1,
+                                            item2Cat: cat2.id, item2Val: val2,
+                                            ordinalCat: ordCat.id
+                                        } as AdjacencyClue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate Disjunction (OR) Clues
+        if (isAllowed(ClueType.OR)) {
+            // We want to generate clues that are (A OR B) where A is true and B is false (or vice versa).
+            // This creates the most interesting logic.
+            const atomicClues = [...clues]; // Clues generated so far are all TRUE.
+            const targetOrCount = Math.min(atomicClues.length, 50); // Don't overwhelm
+
+            for (let i = 0; i < targetOrCount; i++) {
+                // Pick a True Clue
+                const trueClue = atomicClues[Math.floor(this.random() * atomicClues.length)];
+
+                // Generate a False Clue
+                // Strategy: Pick two random items and assert a relationship that contradicts the solution.
+                let falseClue: Clue | undefined;
+                let attempts = 0;
+                while (!falseClue && attempts < 10) {
+                    attempts++;
+                    // Pick random type
+                    const useBinary = this.random() > 0.5;
+                    const cat1 = categories[Math.floor(this.random() * categories.length)];
+                    const cat2 = categories[Math.floor(this.random() * categories.length)];
+                    if (cat1.id === cat2.id) continue;
+
+                    const val1 = cat1.values[Math.floor(this.random() * cat1.values.length)];
+                    const val2 = cat2.values[Math.floor(this.random() * cat2.values.length)];
+
+                    // Check real relationship
+                    const base1 = reverseSolution.get(cat1.id)?.get(val1);
+                    const map1 = base1 ? valueMap.get(base1) : undefined;
+                    const realVal2 = map1 ? map1[cat2.id] : undefined;
+
+                    if (useBinary) {
+                        // If they ARE match, say IS NOT (false).
+                        // If they are NOT match, say IS (false).
+                        const areMatch = realVal2 === val2;
+                        falseClue = {
+                            type: ClueType.BINARY,
+                            cat1: cat1.id, val1: val1,
+                            cat2: cat2.id, val2: val2,
+                            operator: areMatch ? BinaryOperator.IS_NOT : BinaryOperator.IS
+                        };
+                    } else {
+                        // Ordinal False? Too complex for now, stick to Binary False components for robustness.
+                        const areMatch = realVal2 === val2;
+                        falseClue = {
+                            type: ClueType.BINARY,
+                            cat1: cat1.id, val1: val1,
+                            cat2: cat2.id, val2: val2,
+                            operator: areMatch ? BinaryOperator.IS_NOT : BinaryOperator.IS
+                        };
+                    }
+                }
+
+                if (falseClue) {
+                    // Randomize order
+                    if (this.random() > 0.5) {
+                        clues.push({ type: ClueType.OR, clue1: trueClue, clue2: falseClue } as DisjunctionClue);
+                    } else {
+                        clues.push({ type: ClueType.OR, clue1: falseClue, clue2: trueClue } as DisjunctionClue);
+                    }
+                }
+            }
+        }
+
+        // Generate Arithmetic Clues (Same Difference)
+        if (isAllowed(ClueType.ARITHMETIC)) {
+            for (const ordCat of categories) {
+                if (ordCat.type !== CategoryType.ORDINAL) continue;
+
+                // We want to find pairs of items in OTHER categories that have the same difference in this ordinal category.
+                // To keep it simple and understandable, let's look for items within the SAME category (e.g. Two Suspects have same age diff as two other Suspects).
+
+                for (const itemCat of categories) {
+                    if (itemCat.id === ordCat.id) continue; // Don't compare Ordinal items directly (trivial?)
+
+                    // Map all items in itemCat to their value in ordCat
+                    const itemValues: { val: ValueLabel, ord: number }[] = [];
+                    for (const val of itemCat.values) {
+                        const baseVal = reverseSolution.get(itemCat.id)?.get(val);
+                        if (!baseVal) continue;
+                        const mappings = valueMap.get(baseVal);
+                        if (!mappings) continue;
+                        const ordVal = mappings[ordCat.id];
+                        if (typeof ordVal === 'number') {
+                            itemValues.push({ val, ord: ordVal });
+                        }
+                    }
+
+                    // Find all pairs and their differences
+                    const diffMap = new Map<number, { v1: ValueLabel, v2: ValueLabel }[]>();
+
+                    for (let i = 0; i < itemValues.length; i++) {
+                        for (let j = i + 1; j < itemValues.length; j++) {
+                            const p1 = itemValues[i];
+                            const p2 = itemValues[j];
+                            const diff = Math.abs(p1.ord - p2.ord);
+                            if (diff === 0) continue; // Diff 0 means same value. "Diff between A and B is 0" -> A=B. Trivial if A!=B.
+
+                            if (!diffMap.has(diff)) diffMap.set(diff, []);
+                            diffMap.get(diff)!.push({ v1: p1.val, v2: p2.val });
+                        }
+                    }
+
+                    // Generate clues from matching differences
+                    for (const [diff, pairs] of diffMap.entries()) {
+                        if (pairs.length < 2) continue;
+
+                        // Create combinations of 2 pairs
+                        // Limit to avoid explosion?
+                        for (let i = 0; i < pairs.length; i++) {
+                            for (let j = i + 1; j < pairs.length; j++) {
+                                const pair1 = pairs[i];
+                                const pair2 = pairs[j];
+
+                                // Ensure unique items if desired?
+                                // "Diff(A,B) == Diff(A,C)" is valid.
+                                // "Diff(A,B) == Diff(A,B)" is trivial.
+                                // Our loop ensures pair1 != pair2.
+
+                                clues.push({
+                                    type: ClueType.ARITHMETIC,
+                                    item1Cat: itemCat.id, item1Val: pair1.v1,
+                                    item2Cat: itemCat.id, item2Val: pair1.v2,
+                                    item3Cat: itemCat.id, item3Val: pair2.v1,
+                                    item4Cat: itemCat.id, item4Val: pair2.v2,
+                                    ordinalCat: ordCat.id
+                                } as ArithmeticClue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         return clues;
     }
 
@@ -1214,6 +1480,14 @@ export class Generator {
         }
 
 
+        if (isTargetSolved && !puzzleSolved) {
+            return -1000000; // This clue solves the target too early
+        }
+
+        // --- ARITHMETIC CLUE GENERATION LOGIC ---
+        // (Inserted outside generateAllPossibleClues main loop for now, if we want to run it here?
+        // No, this is calculateClueScore. We need to go to generateAllPossibleClues.)
+
         const synergyScore = deductions;
         const { totalPossible, currentPossible, solutionPossible } = grid.getGridStats();
         const totalEliminatable = totalPossible - solutionPossible;
@@ -1231,12 +1505,21 @@ export class Generator {
                 if ((clue as SuperlativeClue).operator >= 2) complexityBonus = 5.0; // Boost Negative Superlatives
                 break;
             case ClueType.UNARY: complexityBonus = 1.2; break;
-            case ClueType.BINARY:
-                complexityBonus = 1.0;
-                // Boost IS_NOT to encourage variety, as they are weaker deduction-wise
-                if ((clue as BinaryClue).operator === BinaryOperator.IS_NOT) {
-                    complexityBonus = 5.0;
-                }
+            case ClueType.BETWEEN:
+                complexityBonus = 4.0;
+                break;
+            case ClueType.ADJACENCY:
+                complexityBonus = 3.5;
+                break;
+            case ClueType.OR:
+                // OR clue is harder than sum? Or just sum?
+                // It splits attention.
+                // This needs access to categories, which is not passed here.
+                // For now, a fixed high bonus.
+                complexityBonus = 6.0;
+                break;
+            case ClueType.ARITHMETIC:
+                complexityBonus = 4.5;
                 break;
         }
 
@@ -1257,6 +1540,17 @@ export class Generator {
                         secondary.push(safeGet(b.cat2, b.val2));
                     }
                     break;
+                case ClueType.BETWEEN:
+                    const bw = c as BetweenClue;
+                    primary.push(safeGet(bw.targetCat, bw.targetVal));
+                    secondary.push(safeGet(bw.lowerCat, bw.lowerVal));
+                    secondary.push(safeGet(bw.upperCat, bw.upperVal));
+                    break;
+                case ClueType.ADJACENCY:
+                    const adj = c as AdjacencyClue;
+                    primary.push(safeGet(adj.item1Cat, adj.item1Val));
+                    secondary.push(safeGet(adj.item2Cat, adj.item2Val));
+                    break;
                 case ClueType.SUPERLATIVE:
                     const s = c as SuperlativeClue;
                     primary.push(safeGet(s.targetCat, s.targetVal));
@@ -1269,6 +1563,25 @@ export class Generator {
                 case ClueType.UNARY:
                     const u = c as UnaryClue;
                     primary.push(safeGet(u.targetCat, u.targetVal));
+                    break;
+                case ClueType.CROSS_ORDINAL:
+                    // Cross ordinal subjects... TODO (Already handled generally or need implementation?)
+                    // For now fallback to empty or implement if strict needed.
+                    break;
+                case ClueType.OR:
+                    const or = c as DisjunctionClue;
+                    // For OR clues, we consider entities from both sub-clues
+                    const entities1 = getEntities(or.clue1);
+                    const entities2 = getEntities(or.clue2);
+                    primary.push(...entities1.primary, ...entities2.primary);
+                    secondary.push(...entities1.secondary, ...entities2.secondary);
+                    break;
+                case ClueType.ARITHMETIC:
+                    const ar = c as ArithmeticClue;
+                    primary.push(safeGet(ar.item1Cat, ar.item1Val));
+                    primary.push(safeGet(ar.item3Cat, ar.item3Val));
+                    secondary.push(safeGet(ar.item2Cat, ar.item2Val));
+                    secondary.push(safeGet(ar.item4Cat, ar.item4Val));
                     break;
             }
             return {
@@ -1341,6 +1654,10 @@ export class Generator {
                     case ClueType.ORDINAL: return 3;
                     case ClueType.UNARY: return 3;
                     case ClueType.CROSS_ORDINAL: return 4; // Hardest
+                    case ClueType.BETWEEN: return 4;
+                    case ClueType.ADJACENCY: return 3;
+                    case ClueType.OR: return 5; // OR clues are generally complex
+                    case ClueType.ARITHMETIC: return 4;
                     default: return 2;
                 }
             };
@@ -1372,7 +1689,8 @@ export class Generator {
         clue: Clue,
         solution: Solution,
         reverseSolution: Map<string, Map<ValueLabel, ValueLabel>>,
-        valueMap: Map<ValueLabel, Record<string, ValueLabel>>
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>>,
+        categories: CategoryConfig[]
     ): boolean {
         // Helper to get real value
         const getRealValue = (catId: string, val: ValueLabel, targetCatId: string): ValueLabel | undefined => {
@@ -1395,12 +1713,21 @@ export class Generator {
             return typeof ordVal === 'number' ? ordVal : undefined;
         };
 
-
         switch (clue.type) {
+            case ClueType.ARITHMETIC: {
+                const c = clue as ArithmeticClue;
+                const v1 = getOrdinalValue(c.item1Cat, c.item1Val, c.ordinalCat);
+                const v2 = getOrdinalValue(c.item2Cat, c.item2Val, c.ordinalCat);
+                const v3 = getOrdinalValue(c.item3Cat, c.item3Val, c.ordinalCat);
+                const v4 = getOrdinalValue(c.item4Cat, c.item4Val, c.ordinalCat);
+
+                if (v1 === undefined || v2 === undefined || v3 === undefined || v4 === undefined) return false;
+                return Math.abs(v1 - v2) === Math.abs(v3 - v4);
+            }
             case ClueType.BINARY: {
                 const b = clue as BinaryClue;
                 const realVal2 = getRealValue(b.cat1, b.val1, b.cat2);
-                if (realVal2 === undefined) return false; // Should not happen in consistent state
+                if (realVal2 === undefined) return false;
 
                 if (b.operator === BinaryOperator.IS) {
                     return realVal2 === b.val2;
@@ -1419,8 +1746,8 @@ export class Generator {
                 switch (o.operator) {
                     case OrdinalOperator.GREATER_THAN: return v1 > v2;
                     case OrdinalOperator.LESS_THAN: return v1 < v2;
-                    case OrdinalOperator.NOT_GREATER_THAN: return v1 <= v2; // Not After
-                    case OrdinalOperator.NOT_LESS_THAN: return v1 >= v2; // Not Before
+                    case OrdinalOperator.NOT_GREATER_THAN: return v1 <= v2;
+                    case OrdinalOperator.NOT_LESS_THAN: return v1 >= v2;
                 }
                 break;
             }
@@ -1429,17 +1756,11 @@ export class Generator {
                 const v = getOrdinalValue(s.targetCat, s.targetVal, s.ordinalCat);
                 if (v === undefined) return false;
 
-                // We need the min/max of the ordinal category
-                // Since we don't have categories passed in directly, we can infer from valueMap or we need categories?
-                // valueMap has all values.
-                // But simpler: we know mappings for ALL items in ordinal cat.
-                // Let's iterate all base values to find min/max for that ordinal cat.
                 let min = Infinity;
                 let max = -Infinity;
 
-                // valueMap keys are baseValues (Category[0] values)
-                for (const baseVal of this.valueMap.keys()) {
-                    const mappings = this.valueMap.get(baseVal);
+                for (const baseVal of valueMap.keys()) {
+                    const mappings = valueMap.get(baseVal);
                     if (mappings) {
                         const ov = mappings[s.ordinalCat];
                         if (typeof ov === 'number') {
@@ -1449,7 +1770,7 @@ export class Generator {
                     }
                 }
 
-                if (min === Infinity) return false; // No ordinal values found?
+                if (min === Infinity) return false;
 
                 switch (s.operator) {
                     case SuperlativeOperator.MIN: return v === min;
@@ -1470,6 +1791,30 @@ export class Generator {
                 }
                 break;
             }
+            case ClueType.BETWEEN: {
+                const b = clue as BetweenClue;
+                const midVal = getOrdinalValue(b.targetCat, b.targetVal, b.ordinalCat);
+                const lowVal = getOrdinalValue(b.lowerCat, b.lowerVal, b.ordinalCat);
+                const highVal = getOrdinalValue(b.upperCat, b.upperVal, b.ordinalCat);
+
+                if (midVal === undefined || lowVal === undefined || highVal === undefined) return false;
+                return (midVal > lowVal) && (midVal < highVal);
+            }
+            case ClueType.ADJACENCY: {
+                const adj = clue as AdjacencyClue;
+                const v1 = getOrdinalValue(adj.item1Cat, adj.item1Val, adj.ordinalCat);
+                const v2 = getOrdinalValue(adj.item2Cat, adj.item2Val, adj.ordinalCat);
+
+                if (v1 === undefined || v2 === undefined) return false;
+
+                const ordCatConfig = categories.find(c => c.id === adj.ordinalCat);
+                if (!ordCatConfig) return false;
+
+                const vals = ordCatConfig.values;
+                const idx1 = vals.indexOf(v1);
+                const idx2 = vals.indexOf(v2);
+                return Math.abs(idx1 - idx2) === 1;
+            }
             case ClueType.CROSS_ORDINAL: {
                 const c = clue as CrossOrdinalClue;
                 const v1 = getOrdinalValue(c.item1Cat, c.item1Val, c.ordinal1);
@@ -1485,6 +1830,12 @@ export class Generator {
                     case OrdinalOperator.NOT_LESS_THAN: return v1 >= v2;
                 }
                 break;
+            }
+            case ClueType.OR: {
+                const orClue = clue as DisjunctionClue;
+                const c1 = this.checkClueConsistency(orClue.clue1, solution, reverseSolution, valueMap, categories);
+                const c2 = this.checkClueConsistency(orClue.clue2, solution, reverseSolution, valueMap, categories);
+                return c1 || c2;
             }
         }
 

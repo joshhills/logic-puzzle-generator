@@ -23,8 +23,12 @@ The intention is for this library to empower narrative designers to create myste
     - **Binary**: IS / IS NOT
     - **Ordinal**: Older/Younger + Negative (Not Before/After)
     - **Cross-Ordinal**: Transitive relationships across different ordinal axes + Negated (Match/Not Match).
+    - **Adjacency**: Neighbor relationships (X is next to Y).
+    - **Between**: Strict range relationships (X is between Y and Z).
     - **Superlative**: Extremes (Oldest/Youngest) + Negative (Not Oldest).
     - **Unary**: Properties (Even/Odd). Requires at least one ordinal category that contains a mix of both odd and even numeric values.
+    - **Disjunction**: Meta-clue (A OR B). At least one of the sub-clues must be true.
+    - **Arithmetic**: Equality of differences (|A - B| = |C - D|). Requires an ordinal category.
 - **Complexity Variance**: The generator intelligently varies clue complexity to create a balanced puzzle flow.
 - **Clue Constraints**: Filter which clue types are allowed (e.g., disable Ordinal clues) for custom difficulty.
 - **Proof Chain**: Generates a full step-by-step solution path ("Proof Chain").
@@ -176,8 +180,10 @@ The generator produces four types of clues:
 1.  **Binary**: Direct relationships. "Alice eats Chips" or "Bob does NOT eat Popcorn".
 2.  **Ordinal**: Comparisons. "The person eating Chips is younger than Bob" or "Alice is NOT older than Charlie".
 3.  **Cross-Ordinal**: Complex relativity. "The item before Alice (Age) is the item after Bob (Cost)".
-4.  **Superlative**: Extremes. "Alice is the oldest" or "Bob is NOT the youngest".
-5.  **Unary**: Properties. "The person eating Chips is an even age".
+4.  **Adjacency**: Neighbors. "Alice is next to Bob in Age" (Strictly previous or next value).
+5.  **Superlative**: Extremes. "Alice is the oldest" or "Bob is NOT the youngest".
+6.  **Between**: Range. "Alice is older than Bob but younger than Charlie".
+7.  **Unary**: Properties. "The person eating Chips is an even age".
 
 ### The Proof Chain
 The generator solves the puzzle as it builds it. The `puzzle.proofChain` array contains the optimal order of clues to solve the grid. This is useful for building hint systems or verify difficulty.
@@ -352,7 +358,7 @@ The library uses specific error types to help you debug configuration issues.
 | Method | Throws | Reason |
 | :--- | :--- | :--- |
 | `new Generator()` | `Error` | If `seed` is invalid (NaN). |
-| `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
+| `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> - `ORDINAL` category contains duplicate values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
 | `startSession()` | `ConfigurationError` | - Less than 2 categories. |
 | `LogicGrid()` | `ConfigurationError` | - Duplicate Category IDs <br> - Duplicate Values within a category <br> - Mismatched value counts (all categories must be same size). |
 
