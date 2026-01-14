@@ -87,6 +87,7 @@ function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [alertState, setAlertState] = useState<{ isOpen: boolean, title: string, message: string }>({ isOpen: false, title: '', message: '' });
   const [savedPuzzles, setSavedPuzzles] = useState<SavedPuzzle[]>([]);
+  const [shouldAutoGenerate, setShouldAutoGenerate] = useState(false);
 
   // Dark Mode
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -368,10 +369,18 @@ function App() {
               if (valIdx !== -1) setTargetVal1Idx(valIdx);
             }
 
-            if (c2Idx !== -1) {
+            if (c2Idx !== -1 && c2Idx !== c1Idx) {
               setTargetCat2Idx(c2Idx);
+            } else {
+              // Fallback to ensure distinct category
+              setTargetCat2Idx(c1Idx === 0 ? 1 : 0);
             }
           }
+        }
+
+        // Auto-Play Logic
+        if (config.autoPlay) {
+          setShouldAutoGenerate(true);
         }
 
         showAlert("Shared Puzzle Loaded", "Configuration loaded from share link.");
@@ -464,6 +473,19 @@ function App() {
       // But let's enforce min strictly.
     }
   }, [numCats, numItems, targetClueCount]);
+
+  // Auto-Generate Effect
+  useEffect(() => {
+    if (shouldAutoGenerate && !isGenerating && !puzzle) {
+      // Only generate if we have categories
+      if (categories.length > 0) {
+        handleGenerate();
+        setShouldAutoGenerate(false);
+        // Move to play/solution view implies step 4 or 5
+        setActiveStep(4);
+      }
+    }
+  }, [shouldAutoGenerate, categories, isGenerating, puzzle]);
 
   // --- Actions ---
 
@@ -665,7 +687,8 @@ function App() {
         c1: categories[targetCat1Idx]?.id,
         c2: categories[targetCat2Idx]?.id,
         val: categories[targetCat1Idx]?.values[targetVal1Idx]
-      } : undefined
+      } : undefined,
+      autoPlay: true
     };
 
     const json = JSON.stringify(shareConfig);
