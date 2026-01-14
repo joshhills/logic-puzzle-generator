@@ -587,7 +587,7 @@ function App() {
     // If categories swapped, swap values too
     const [vA, vB] = cA === cat1 ? [val1, val2] : [val2, val1];
 
-    const key = `${cA}:${cB}:${vA}:${vB} `;
+    const key = `${cA}:${cB}:${vA}:${vB}`;
 
     // Cycle: Empty -> 'F' -> 'T' -> Empty
     // Current State
