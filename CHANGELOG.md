@@ -3,7 +3,12 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
-## [1.3.2] - 2026-01-12
+## [1.3.3] - 2026-01-14
+### Fixed
+- **SOLVER CRITICAL**: Fixed a logic bug in `BETWEEN` clues where transitive deductions (e.g., A < B < C) were not fully propagating. If C restricted B's upper bound, A's upper bound wasn't correctly updated. The solver now stabilizes these deductions internally.
+- **UI**: Fixed an issue where clicking squares in the grid interaction mode was ignored due to a key mismatch (trailing space).
+
+## [1.3.2] - 2026-01-142
 ### Fixed
 - **Polish**: Comprehensive grammar update for all clue types (added subject prefixes like "the suspect who is...").
 - **Polish**: Resolved ambiguity in technical clue descriptions by explicitly listing category names (e.g. "18 (Age)").

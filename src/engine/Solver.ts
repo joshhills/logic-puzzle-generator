@@ -569,8 +569,14 @@ export class Solver {
             ordinalCat: clue.ordinalCat
         };
 
-        deductions += this.applyOrdinalClue(grid, lowerClue, reasons);
-        deductions += this.applyOrdinalClue(grid, upperClue, reasons);
+        let loopDeductions = 0;
+        do {
+            loopDeductions = 0;
+            const d1 = this.applyOrdinalClue(grid, lowerClue, reasons);
+            const d2 = this.applyOrdinalClue(grid, upperClue, reasons);
+            loopDeductions = d1 + d2;
+            deductions += loopDeductions;
+        } while (loopDeductions > 0);
 
         return deductions;
     }
