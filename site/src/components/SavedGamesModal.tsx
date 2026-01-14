@@ -14,9 +14,12 @@ interface SavedGamesModalProps {
     saves: SavedPuzzle[];
     onLoad: (save: SavedPuzzle) => void;
     onDelete: (id: string) => void;
+    onRename: (id: string, newTitle: string) => void;
 }
 
-export const SavedGamesModal: React.FC<SavedGamesModalProps> = ({ isOpen, onClose, saves, onLoad, onDelete }) => {
+export const SavedGamesModal: React.FC<SavedGamesModalProps> = ({ isOpen, onClose, saves, onLoad, onDelete, onRename }) => {
+    const [isRenaming, setIsRenaming] = React.useState<string | null>(null);
+
     if (!isOpen) return null;
 
     return (
@@ -64,11 +67,43 @@ export const SavedGamesModal: React.FC<SavedGamesModalProps> = ({ isOpen, onClos
                                 alignItems: 'center'
                             }}>
                                 <div>
-                                    <div style={{ fontWeight: 'bold', fontSize: '1.1em', color: '#fff' }}>
-                                        {save.title || 'Untitled Puzzle'}
-                                    </div>
+                                    {isRenaming === save.id ? (
+                                        <div style={{ display: 'flex', gap: '5px', marginBottom: '5px' }} onClick={e => e.stopPropagation()}>
+                                            <input
+                                                type="text"
+                                                defaultValue={save.title}
+                                                autoFocus
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        onRename(save.id, e.currentTarget.value);
+                                                        setIsRenaming(null);
+                                                    } else if (e.key === 'Escape') {
+                                                        setIsRenaming(null);
+                                                    }
+                                                }}
+                                                onBlur={(e) => {
+                                                    onRename(save.id, e.currentTarget.value);
+                                                    setIsRenaming(null);
+                                                }}
+                                                style={{
+                                                    background: '#111',
+                                                    border: '1px solid #555',
+                                                    color: '#fff',
+                                                    padding: '4px 8px',
+                                                    borderRadius: '4px'
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div style={{ fontWeight: 'bold', fontSize: '1.1em', color: '#fff', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {save.title || 'Untitled Puzzle'}
+                                        </div>
+                                    )}
                                     <div style={{ fontSize: '0.85em', color: '#888', marginTop: '4px' }}>
                                         {new Date(save.date).toLocaleDateString()} • {save.preview}
+                                    </div>
+                                    <div style={{ fontSize: '0.8em', color: '#666', marginTop: '2px', fontFamily: 'monospace' }}>
+                                        Seed: {save.data.config.seedInput || '(Random)'} • Clues: {save.data.puzzle ? save.data.puzzle.clues.length : '?'}
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', gap: '10px' }}>
@@ -85,6 +120,20 @@ export const SavedGamesModal: React.FC<SavedGamesModalProps> = ({ isOpen, onClos
                                         }}
                                     >
                                         Load
+                                    </button>
+                                    <button
+                                        onClick={() => setIsRenaming(save.id)}
+                                        style={{
+                                            padding: '8px',
+                                            backgroundColor: 'transparent',
+                                            color: '#aaa',
+                                            border: '1px solid #444',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer'
+                                        }}
+                                        title="Rename"
+                                    >
+                                        ✎
                                     </button>
                                     <button
                                         onClick={() => onDelete(save.id)}

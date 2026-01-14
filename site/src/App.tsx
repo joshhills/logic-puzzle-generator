@@ -308,15 +308,50 @@ function App() {
         timerSeconds: seconds // Save timer state
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    }, 500); // 500ms debounce
+    }, 500);
+
     return () => clearTimeout(timer);
   }, [
     activeStep, maxReachedStep, selectedStep,
-    numCats, numItems, categories,
-    targetClueCount, useTargetClueCount, seedInput, flavorText,
-    targetCat1Idx, targetVal1Idx, targetCat2Idx, useSpecificGoal,
+    categories, savedPuzzles, isDarkMode, useSpecificGoal, puzzleTitle,
     puzzle, viewMode, userPlayState, isInteractiveMode, seconds
   ]);
+
+  // Check for Share Link
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shareData = params.get('share');
+    if (shareData) {
+      try {
+        const json = atob(shareData);
+        const config = JSON.parse(json);
+
+        if (config.categories) {
+          setCategories(config.categories);
+          // Update Counts
+          setNumCats(config.categories.length);
+          setNumItems(config.categories[0]?.values.length || 4);
+        }
+        if (config.seed) setSeedInput(config.seed);
+
+        // Restore target fact logic if possible
+        if (config.targetFact) {
+          setUseSpecificGoal(true);
+          // Need to set indices based on IDs, but might be fragile if IDs changed.
+          // For now, minimal support.
+        }
+
+        showAlert("Shared Puzzle Loaded", "Configuration loaded from share link.");
+
+        // Clean URL
+        window.history.replaceState({}, '', window.location.pathname);
+
+      } catch (e) {
+        console.error("Failed to parse share link", e);
+        showAlert("Error", "Invalid share link.");
+      }
+    }
+  }, []);
 
   // Update max reached step
   useEffect(() => {
@@ -581,6 +616,34 @@ function App() {
     setSavedPuzzles(newSaves);
     localStorage.setItem('saved_puzzles_list', JSON.stringify(newSaves));
     setDeleteConfirmId(null);
+  };
+
+  const handleRenameSave = (id: string, newTitle: string) => {
+    const newSaves = savedPuzzles.map(s => s.id === id ? { ...s, title: newTitle } : s);
+    setSavedPuzzles(newSaves);
+    localStorage.setItem('saved_puzzles_list', JSON.stringify(newSaves));
+  };
+
+  const handleShare = () => {
+    const shareConfig = {
+      categories: categories,
+      seed: seedInput,
+      targetFact: useSpecificGoal ? {
+        c1: categories[targetCat1Idx]?.id,
+        c2: categories[targetCat2Idx]?.id,
+        val: categories[targetCat1Idx]?.values[targetVal1Idx]
+      } : undefined
+    };
+
+    const json = JSON.stringify(shareConfig);
+    const b64 = btoa(json);
+    const url = `${window.location.origin}${window.location.pathname}?share=${b64}`;
+
+    navigator.clipboard.writeText(url).then(() => {
+      showAlert("Link Copied!", "Share link copied to clipboard. Send it to a friend!");
+    }).catch(() => {
+      showAlert("Error", "Failed to copy link.");
+    });
   };
 
   // Play Mode Action
@@ -1682,461 +1745,468 @@ function App() {
               <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
             )}
             <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '5. Clues Generated!'}</h3>
-            <div style={{ color: '#aaa', fontSize: '0.9em' }}>
+            <button
+              style={{ width: '100%', marginBottom: '10px', padding: '10px', background: 'transparent', border: '1px solid #444', color: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              onClick={handleShare}
+            >
+              Share Configuration 🔗
+            </button>
+            <ul style={{ listStyle: 'none', padding: 0, fontSize: '0.9rem' }}>
               {useSpecificGoal && puzzle?.targetFact ? (
                 <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
               ) : (
                 <>Goal: <strong>Fill the entire grid</strong></>
               )}
-            </div>
           </div>
-          <div className="print-hide" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {(!isInteractiveMode || interactiveSolved) && (
-              <>
-                <button
-                  onClick={() => window.print()}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #10b981',
-                    color: '#10b981',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                >
-                  Print / Save PDF
-                </button>
-                <button
-                  onClick={() => {
-                    setSelectedStep(-1);
-                    setViewMode('solution');
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #444',
-                    color: (selectedStep === -1 || (puzzle && selectedStep === puzzle.proofChain.length - 1)) ? '#10b981' : '#888',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#666'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#444'; }}
-                >
-                  Show Full Solution
-                </button>
-              </>
-            )}
-
-          </div>
+        </div>
+        <div className="print-hide" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {(!isInteractiveMode || interactiveSolved) && (
+            <>
+              <button
+                onClick={() => window.print()}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #10b981',
+                  color: '#10b981',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+              >
+                Print / Save PDF
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedStep(-1);
+                  setViewMode('solution');
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #444',
+                  color: (selectedStep === -1 || (puzzle && selectedStep === puzzle.proofChain.length - 1)) ? '#10b981' : '#888',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#666'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#444'; }}
+              >
+                Show Full Solution
+              </button>
+            </>
+          )}
 
         </div>
 
-        {isInteractiveMode && session && (
-          <div className="print-hide" style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
-            {/* Generation Controls Header (Collapsible Trigger) */}
-            {/* Generation Controls Header (Collapsible Trigger) */}
-            <div
-              onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-start', // Changed to flex-start
-                alignItems: 'center',
-                cursor: 'pointer',
-                marginBottom: '10px',
-                padding: '10px',
-                backgroundColor: '#32302f',
-                borderRadius: '5px',
-                userSelect: 'none'
-              }}
-            >
-              <div style={{ color: '#aaa', marginRight: '10px', fontSize: '1.2em', width: '20px', textAlign: 'center' }}>
-                {isSettingsOpen ? '▼' : '▶'}
+      </div>
+
+        {
+      isInteractiveMode && session && (
+        <div className="print-hide" style={{ padding: '20px', backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
+          {/* Generation Controls Header (Collapsible Trigger) */}
+          {/* Generation Controls Header (Collapsible Trigger) */}
+          <div
+            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-start', // Changed to flex-start
+              alignItems: 'center',
+              cursor: 'pointer',
+              marginBottom: '10px',
+              padding: '10px',
+              backgroundColor: '#32302f',
+              borderRadius: '5px',
+              userSelect: 'none'
+            }}
+          >
+            <div style={{ color: '#aaa', marginRight: '10px', fontSize: '1.2em', width: '20px', textAlign: 'center' }}>
+              {isSettingsOpen ? '▼' : '▶'}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <h4 style={{ margin: 0, color: '#d5c4a1' }}>Generation Controls</h4>
+              <span style={{ fontSize: '0.8em', color: '#888' }}>({session.getTotalClueCount()} clues)</span>
+            </div>
+          </div>
+
+          {/* Collapsible Content */}
+          {isSettingsOpen && (
+            <div style={{ animation: 'fadeIn 0.2s' }}>
+
+              <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+                {[
+                  { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
+                  { title: 'Positional / Relative', types: [ClueType.ADJACENCY, ClueType.BETWEEN] },
+                  { title: 'Complex Logic', types: [ClueType.OR, ClueType.ARITHMETIC] },
+                  { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
+                ].map((group) => (
+                  <div key={group.title} style={{ minWidth: '200px' }}>
+                    <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '8px', fontWeight: 'bold' }}>{group.title}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                      {group.types.map(type => {
+                        const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
+                        const hasValidUnaryCategory = categories.some(cat => {
+                          if (cat.type !== CategoryType.ORDINAL) return false;
+                          const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
+                          const hasOdd = numericValues.some(v => v % 2 !== 0);
+                          const hasEven = numericValues.some(v => v % 2 === 0);
+                          return hasOdd && hasEven;
+                        });
+
+                        let isDisabled = false;
+                        let disabledReason = '';
+
+                        if (type === ClueType.CROSS_ORDINAL) {
+                          if (ordinalCount < 2) {
+                            isDisabled = true;
+                            disabledReason = '(Req. 2+ Ordinal Cats)';
+                          }
+                        } else if (type === ClueType.UNARY) {
+                          if (!hasValidUnaryCategory) {
+                            isDisabled = true;
+                            disabledReason = '(Req. Mixed Odd/Even)';
+                          }
+                        } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.ADJACENCY, ClueType.BETWEEN, ClueType.ARITHMETIC].includes(type)) {
+                          if (ordinalCount < 1) {
+                            isDisabled = true;
+                            disabledReason = '(Req. Ordinal Cat)';
+                          }
+                        }
+
+                        // Only show types that are globally allowed
+                        if (!allowedClueTypes.includes(type)) return null;
+
+                        const isSelected = nextClueConstraints.includes(type);
+
+                        return (
+                          <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected && !isDisabled}
+                              disabled={isDisabled}
+                              onChange={(e) => {
+                                if (isDisabled) return;
+                                let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
+
+                                // Validation: Ensure at least one Core type is selected
+                                const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL, ClueType.ADJACENCY, ClueType.BETWEEN];
+                                const hasStrong = newAllowed.some(t => strongTypes.includes(t));
+
+                                if (newAllowed.length > 0 && !hasStrong) {
+                                  showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one Core Clue type (Binary, Ordinal, etc.) to ensure the puzzle is solvable.");
+                                  return;
+                                }
+
+                                setNextClueConstraints(newAllowed);
+                              }}
+                            />
+                            {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>{disabledReason}</span>}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h4 style={{ margin: 0, color: '#d5c4a1' }}>Generation Controls</h4>
-                <span style={{ fontSize: '0.8em', color: '#888' }}>({session.getTotalClueCount()} clues)</span>
+              <div style={{ marginBottom: '15px', color: '#ccc' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+                  {/* Include Subjects */}
+                  <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include Subjects (Allowlist)</div>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      {categories.map((cat, i) => (
+                        <div key={i}>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {cat.values.map((val, vIdx) => {
+                              const valStr = String(val);
+                              const isSelected = includeSubjectsInput.includes(valStr);
+                              const isDisabled = excludeSubjectsInput.includes(valStr);
+                              return (
+                                <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#324a3e' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #8ec07c' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    disabled={isDisabled}
+                                    onChange={(e) => {
+                                      if (e.target.checked) setIncludeSubjectsInput([...includeSubjectsInput, valStr]);
+                                      else setIncludeSubjectsInput(includeSubjectsInput.filter(s => s !== valStr));
+                                    }}
+                                    style={{ display: 'none' }}
+                                  />
+                                  {valStr}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Exclude Subjects */}
+                  <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude Subjects (Disallowlist)</div>
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                      {categories.map((cat, i) => (
+                        <div key={i}>
+                          <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                            {cat.values.map((val, vIdx) => {
+                              const valStr = String(val);
+                              const isSelected = excludeSubjectsInput.includes(valStr);
+                              const isDisabled = includeSubjectsInput.includes(valStr);
+                              return (
+                                <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#5a2c2c' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #fb4934' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    disabled={isDisabled}
+                                    onChange={(e) => {
+                                      if (e.target.checked) setExcludeSubjectsInput([...excludeSubjectsInput, valStr]);
+                                      else setExcludeSubjectsInput(excludeSubjectsInput.filter(s => s !== valStr));
+                                    }}
+                                    style={{ display: 'none' }}
+                                  />
+                                  {valStr}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '20px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                    <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Min Ded</span>
+                    <input
+                      type="number"
+                      min="0"
+                      value={minDeductionsInput}
+                      onChange={(e) => setMinDeductionsInput(Math.max(0, parseInt(e.target.value) || 0))}
+                      style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
+                    />
+                  </label>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
+                    <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Max Ded</span>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="∞"
+                      value={maxDeductionsInput === undefined ? '' : maxDeductionsInput}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val === '') setMaxDeductionsInput(undefined);
+                        else setMaxDeductionsInput(Math.max(0, parseInt(val)));
+                      }}
+                      style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
+                    />
+                  </label>
+                </div>
               </div>
             </div>
-
-            {/* Collapsible Content */}
-            {isSettingsOpen && (
-              <div style={{ animation: 'fadeIn 0.2s' }}>
-
-                <div style={{ marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
-                  {[
-                    { title: 'Core Clues (Standalone)', types: [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL] },
-                    { title: 'Positional / Relative', types: [ClueType.ADJACENCY, ClueType.BETWEEN] },
-                    { title: 'Complex Logic', types: [ClueType.OR, ClueType.ARITHMETIC] },
-                    { title: 'Supplemental (Requires Core)', types: [ClueType.SUPERLATIVE, ClueType.UNARY] }
-                  ].map((group) => (
-                    <div key={group.title} style={{ minWidth: '200px' }}>
-                      <div style={{ fontSize: '0.8em', color: '#888', marginBottom: '8px', fontWeight: 'bold' }}>{group.title}</div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {group.types.map(type => {
-                          const ordinalCount = categories.filter(c => c.type === CategoryType.ORDINAL).length;
-                          const hasValidUnaryCategory = categories.some(cat => {
-                            if (cat.type !== CategoryType.ORDINAL) return false;
-                            const numericValues = cat.values.map(v => Number(v)).filter(v => !isNaN(v));
-                            const hasOdd = numericValues.some(v => v % 2 !== 0);
-                            const hasEven = numericValues.some(v => v % 2 === 0);
-                            return hasOdd && hasEven;
-                          });
-
-                          let isDisabled = false;
-                          let disabledReason = '';
-
-                          if (type === ClueType.CROSS_ORDINAL) {
-                            if (ordinalCount < 2) {
-                              isDisabled = true;
-                              disabledReason = '(Req. 2+ Ordinal Cats)';
-                            }
-                          } else if (type === ClueType.UNARY) {
-                            if (!hasValidUnaryCategory) {
-                              isDisabled = true;
-                              disabledReason = '(Req. Mixed Odd/Even)';
-                            }
-                          } else if ([ClueType.ORDINAL, ClueType.SUPERLATIVE, ClueType.ADJACENCY, ClueType.BETWEEN, ClueType.ARITHMETIC].includes(type)) {
-                            if (ordinalCount < 1) {
-                              isDisabled = true;
-                              disabledReason = '(Req. Ordinal Cat)';
-                            }
-                          }
-
-                          // Only show types that are globally allowed
-                          if (!allowedClueTypes.includes(type)) return null;
-
-                          const isSelected = nextClueConstraints.includes(type);
-
-                          return (
-                            <label key={type} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', backgroundColor: '#282828', borderRadius: '4px', cursor: isDisabled ? 'not-allowed' : 'pointer', opacity: isDisabled ? 0.5 : 1 }}>
-                              <input
-                                type="checkbox"
-                                checked={isSelected && !isDisabled}
-                                disabled={isDisabled}
-                                onChange={(e) => {
-                                  if (isDisabled) return;
-                                  let newAllowed = e.target.checked ? [...nextClueConstraints, type] : nextClueConstraints.filter(t => t !== type);
-
-                                  // Validation: Ensure at least one Core type is selected
-                                  const strongTypes = [ClueType.BINARY, ClueType.ORDINAL, ClueType.CROSS_ORDINAL, ClueType.ADJACENCY, ClueType.BETWEEN];
-                                  const hasStrong = newAllowed.some(t => strongTypes.includes(t));
-
-                                  if (newAllowed.length > 0 && !hasStrong) {
-                                    showAlert("Invalid Configuration", "Ambiguous Constraint Set: Please allow at least one Core Clue type (Binary, Ordinal, etc.) to ensure the puzzle is solvable.");
-                                    return;
-                                  }
-
-                                  setNextClueConstraints(newAllowed);
-                                }}
-                              />
-                              {ClueType[type]} {isDisabled && <span style={{ fontSize: '0.7em', color: '#888' }}>{disabledReason}</span>}
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ marginBottom: '15px', color: '#ccc' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
-                    {/* Include Subjects */}
-                    <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                      <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#8ec07c' }}>Include Subjects (Allowlist)</div>
-                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        {categories.map((cat, i) => (
-                          <div key={i}>
-                            <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                              {cat.values.map((val, vIdx) => {
-                                const valStr = String(val);
-                                const isSelected = includeSubjectsInput.includes(valStr);
-                                const isDisabled = excludeSubjectsInput.includes(valStr);
-                                return (
-                                  <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#324a3e' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #8ec07c' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      disabled={isDisabled}
-                                      onChange={(e) => {
-                                        if (e.target.checked) setIncludeSubjectsInput([...includeSubjectsInput, valStr]);
-                                        else setIncludeSubjectsInput(includeSubjectsInput.filter(s => s !== valStr));
-                                      }}
-                                      style={{ display: 'none' }}
-                                    />
-                                    {valStr}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Exclude Subjects */}
-                    <div style={{ backgroundColor: '#202020', padding: '10px', borderRadius: '8px' }}>
-                      <div style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '8px', color: '#fb4934' }}>Exclude Subjects (Disallowlist)</div>
-                      <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        {categories.map((cat, i) => (
-                          <div key={i}>
-                            <div style={{ fontWeight: 'bold', fontSize: '0.9em', marginBottom: '4px', color: '#aaa', borderBottom: '1px solid #333' }}>{cat.id}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                              {cat.values.map((val, vIdx) => {
-                                const valStr = String(val);
-                                const isSelected = excludeSubjectsInput.includes(valStr);
-                                const isDisabled = includeSubjectsInput.includes(valStr);
-                                return (
-                                  <label key={vIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85em', cursor: isDisabled ? 'not-allowed' : 'pointer', backgroundColor: isSelected ? '#5a2c2c' : '#282828', padding: '2px 6px', borderRadius: '4px', border: isSelected ? '1px solid #fb4934' : '1px solid #444', opacity: isDisabled ? 0.4 : 1 }}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isSelected}
-                                      disabled={isDisabled}
-                                      onChange={(e) => {
-                                        if (e.target.checked) setExcludeSubjectsInput([...excludeSubjectsInput, valStr]);
-                                        else setExcludeSubjectsInput(excludeSubjectsInput.filter(s => s !== valStr));
-                                      }}
-                                      style={{ display: 'none' }}
-                                    />
-                                    {valStr}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ marginBottom: '20px', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
-                      <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Min Ded</span>
-                      <input
-                        type="number"
-                        min="0"
-                        value={minDeductionsInput}
-                        onChange={(e) => setMinDeductionsInput(Math.max(0, parseInt(e.target.value) || 0))}
-                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
-                      />
-                    </label>
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '4px', flex: 1 }}>
-                      <span style={{ fontSize: '0.8em', textTransform: 'uppercase', letterSpacing: '1px' }}>Max Ded</span>
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="∞"
-                        value={maxDeductionsInput === undefined ? '' : maxDeductionsInput}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (val === '') setMaxDeductionsInput(undefined);
-                          else setMaxDeductionsInput(Math.max(0, parseInt(val)));
-                        }}
-                        style={{ padding: '6px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#282828', color: '#fff', width: '100%', minWidth: '70px' }}
-                      />
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
+          )}
 
 
-            {/* Action Buttons Row */}
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
-              {/* Search Toggle */}
-              <button
-                onClick={() => setIsSearchOpen(!isSearchOpen)}
-                disabled={interactiveSolved}
-                style={{
-                  padding: '10px 15px',
-                  backgroundColor: isSearchOpen ? '#504945' : '#32302f',
-                  color: isSearchOpen ? '#fff' : '#aaa',
-                  border: '1px solid #504945',
-                  borderRadius: '5px',
-                  cursor: interactiveSolved ? 'not-allowed' : 'pointer',
-                  fontWeight: 'bold',
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  minWidth: '200px',
-                  justifyContent: 'center'
-                }}
-              >
-                {isSearchOpen ? 'Hide Search' : 'Find Matching Clues'}
-                <span style={{ backgroundColor: '#282828', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8em', color: '#aaa' }}>
-                  {session.getMatchingClueCount({
+          {/* Action Buttons Row */}
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
+            {/* Search Toggle */}
+            <button
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              disabled={interactiveSolved}
+              style={{
+                padding: '10px 15px',
+                backgroundColor: isSearchOpen ? '#504945' : '#32302f',
+                color: isSearchOpen ? '#fff' : '#aaa',
+                border: '1px solid #504945',
+                borderRadius: '5px',
+                cursor: interactiveSolved ? 'not-allowed' : 'pointer',
+                fontWeight: 'bold',
+                display: 'flex', alignItems: 'center', gap: '8px',
+                minWidth: '200px',
+                justifyContent: 'center'
+              }}
+            >
+              {isSearchOpen ? 'Hide Search' : 'Find Matching Clues'}
+              <span style={{ backgroundColor: '#282828', padding: '2px 8px', borderRadius: '12px', fontSize: '0.8em', color: '#aaa' }}>
+                {session.getMatchingClueCount({
+                  allowedClueTypes: nextClueConstraints,
+                  includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
+                  excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
+                  minDeductions: minDeductionsInput,
+                  maxDeductions: maxDeductionsInput
+                })}
+              </span>
+            </button>
+
+            {/* Generate Button */}
+            <button
+              onClick={() => {
+                try {
+                  const result = session.getNextClue({
                     allowedClueTypes: nextClueConstraints,
                     includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
                     excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
                     minDeductions: minDeductionsInput,
                     maxDeductions: maxDeductionsInput
-                  })}
-                </span>
-              </button>
+                  });
 
-              {/* Generate Button */}
-              <button
-                onClick={() => {
-                  try {
-                    const result = session.getNextClue({
-                      allowedClueTypes: nextClueConstraints,
-                      includeSubjects: includeSubjectsInput.length > 0 ? includeSubjectsInput : undefined,
-                      excludeSubjects: excludeSubjectsInput.length > 0 ? excludeSubjectsInput : undefined,
-                      minDeductions: minDeductionsInput,
-                      maxDeductions: maxDeductionsInput
-                    });
-
-                    if (result.clue) {
-                      const newStep = { clue: result.clue } as any;
-                      const newProof = [...puzzle.proofChain, newStep];
-                      const newClues = [...puzzle.clues, result.clue];
-                      setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                      setSelectedStep(newProof.length - 1);
-                    } else {
-                      if (result.solved) {
-                        showAlert("Puzzle Solved!", "The grid is fully solved!");
-                        setInteractiveSolved(true);
-                      } else {
-                        showAlert("No Clue Found", "Could not generate a clue with these constraints.");
-                      }
-                    }
-                    if (result.solved) {
-                      setInteractiveSolved(true);
-                      if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
-                    }
-                  } catch (e: any) {
-                    showAlert("Generation Error", e.message || "An error occurred.");
-                  }
-                }}
-                disabled={interactiveSolved || nextClueConstraints.length === 0}
-                style={{
-                  flex: 1,
-                  padding: '10px 20px',
-                  backgroundColor: '#8ec07c',
-                  color: '#282828',
-                  border: 'none',
-                  borderRadius: '5px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  opacity: (interactiveSolved || nextClueConstraints.length === 0) ? 0.5 : 1
-                }}
-              >
-                {interactiveSolved ? 'Session Complete' : 'Generate Next Clue'}
-              </button>
-
-              {/* Undo Button */}
-              <button
-                onClick={() => {
-                  const result = session.rollbackLastClue();
-                  if (result.success) {
-                    const newProof = puzzle.proofChain.slice(0, -1);
-                    const newClues = puzzle.clues.slice(0, -1);
+                  if (result.clue) {
+                    const newStep = { clue: result.clue } as any;
+                    const newProof = [...puzzle.proofChain, newStep];
+                    const newClues = [...puzzle.clues, result.clue];
                     setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                    setInteractiveSolved(false);
-                    if (newProof.length === 0) {
-                      setSelectedStep(-2);
-                    } else if (selectedStep >= newProof.length) {
-                      setSelectedStep(newProof.length - 1);
+                    setSelectedStep(newProof.length - 1);
+                  } else {
+                    if (result.solved) {
+                      showAlert("Puzzle Solved!", "The grid is fully solved!");
+                      setInteractiveSolved(true);
+                    } else {
+                      showAlert("No Clue Found", "Could not generate a clue with these constraints.");
                     }
                   }
-                }}
-                disabled={puzzle.proofChain.length === 0}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#d3869b',
-                  color: '#282828',
-                  border: 'none',
-                  borderRadius: '5px',
-                  fontWeight: 'bold',
-                  cursor: puzzle.proofChain.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: puzzle.proofChain.length === 0 ? 0.5 : 1
-                }}
-              >
-                Undo Last
-              </button>
-            </div>
+                  if (result.solved) {
+                    setInteractiveSolved(true);
+                    if (result.clue) showAlert("Puzzle Solved!", "The grid is fully solved!");
+                  }
+                } catch (e: any) {
+                  showAlert("Generation Error", e.message || "An error occurred.");
+                }
+              }}
+              disabled={interactiveSolved || nextClueConstraints.length === 0}
+              style={{
+                flex: 1,
+                padding: '10px 20px',
+                backgroundColor: '#8ec07c',
+                color: '#282828',
+                border: 'none',
+                borderRadius: '5px',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                opacity: (interactiveSolved || nextClueConstraints.length === 0) ? 0.5 : 1
+              }}
+            >
+              {interactiveSolved ? 'Session Complete' : 'Generate Next Clue'}
+            </button>
 
-            {/* Search Results Panel */}
-            {isSearchOpen && (
-              <div style={{
-                maxHeight: '300px',
-                overflowY: 'auto',
-                backgroundColor: '#1d2021',
-                border: '1px solid #3c3836',
-                borderRadius: '6px',
-                padding: '10px',
-                marginBottom: '15px'
-              }}>
-                {searchResults.length === 0 ? (
-                  <div style={{ padding: '20px', textAlign: 'center', color: '#665c54', fontStyle: 'italic' }}>
-                    No matching clues found. Try relaxing constraints.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {searchResults.map((item, idx) => (
-                      <div key={idx} style={{
-                        display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '15px', padding: '8px',
-                        backgroundColor: item.isDirectAnswer ? '#1d2021' : '#282828',
-                        borderRadius: '4px',
-                        border: item.isDirectAnswer ? '1px dashed #fb4934' : '1px solid #333',
-                        opacity: item.isDirectAnswer ? 0.7 : 1
-                      }}>
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <span style={{ fontSize: '0.9em', color: item.isDirectAnswer ? '#fb4934' : '#dbdbdb', lineHeight: '1.4' }}>{renderPlainLanguageClue(item.clue, categories)}</span>
-                          {item.isDirectAnswer && <span style={{ fontSize: '0.75em', color: '#cc241d', fontStyle: 'italic' }}>⚠️ Direct Answer</span>}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
-                          <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
-                          <span title="Visual Updates">Upd: <span style={{ color: '#98971a' }}>{item.updates !== undefined ? item.updates : item.deductions}</span></span>
-                          <span title="Projected Completion">%: <span style={{ color: '#8ec07c' }}>{Math.round(item.percentComplete)}%</span></span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            try {
-                              const result = session?.useClue(item.clue);
-                              if (result && session && puzzle) {
-                                const newStep = { clue: item.clue } as any;
-                                const newProof = [...puzzle.proofChain, newStep];
-                                const newClues = [...puzzle.clues, item.clue];
-                                setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
-                                setSelectedStep(newProof.length - 1);
-                                if (result.solved) {
-                                  showAlert("Puzzle Solved!", "The grid is fully solved!");
-                                  setInteractiveSolved(true);
-                                }
-                              }
-                            } catch (e: any) {
-                              showAlert("Cannot Add Clue", e.message || "An error occurred.");
-                            }
-                          }}
-                          disabled={item.isDirectAnswer}
-                          style={{
-                            padding: '4px 10px',
-                            backgroundColor: item.isDirectAnswer ? '#3c3836' : '#689d6a',
-                            color: item.isDirectAnswer ? '#7c6f64' : '#282828',
-                            border: 'none',
-                            borderRadius: '3px',
-                            cursor: item.isDirectAnswer ? 'not-allowed' : 'pointer',
-                            fontWeight: 'bold',
-                            fontSize: '0.8em'
-                          }}
-                        >
-                          {item.isDirectAnswer ? 'Solved' : 'Add'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Undo Button */}
+            <button
+              onClick={() => {
+                const result = session.rollbackLastClue();
+                if (result.success) {
+                  const newProof = puzzle.proofChain.slice(0, -1);
+                  const newClues = puzzle.clues.slice(0, -1);
+                  setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                  setInteractiveSolved(false);
+                  if (newProof.length === 0) {
+                    setSelectedStep(-2);
+                  } else if (selectedStep >= newProof.length) {
+                    setSelectedStep(newProof.length - 1);
+                  }
+                }
+              }}
+              disabled={puzzle.proofChain.length === 0}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: '#d3869b',
+                color: '#282828',
+                border: 'none',
+                borderRadius: '5px',
+                fontWeight: 'bold',
+                cursor: puzzle.proofChain.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: puzzle.proofChain.length === 0 ? 0.5 : 1
+              }}
+            >
+              Undo Last
+            </button>
           </div>
-        )
-        }
 
-        {/* Interactive Clue Scrubber */}
+          {/* Search Results Panel */}
+          {isSearchOpen && (
+            <div style={{
+              maxHeight: '300px',
+              overflowY: 'auto',
+              backgroundColor: '#1d2021',
+              border: '1px solid #3c3836',
+              borderRadius: '6px',
+              padding: '10px',
+              marginBottom: '15px'
+            }}>
+              {searchResults.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#665c54', fontStyle: 'italic' }}>
+                  No matching clues found. Try relaxing constraints.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {searchResults.map((item, idx) => (
+                    <div key={idx} style={{
+                      display: 'grid', gridTemplateColumns: '1fr auto auto', alignItems: 'center', gap: '15px', padding: '8px',
+                      backgroundColor: item.isDirectAnswer ? '#1d2021' : '#282828',
+                      borderRadius: '4px',
+                      border: item.isDirectAnswer ? '1px dashed #fb4934' : '1px solid #333',
+                      opacity: item.isDirectAnswer ? 0.7 : 1
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        <span style={{ fontSize: '0.9em', color: item.isDirectAnswer ? '#fb4934' : '#dbdbdb', lineHeight: '1.4' }}>{renderPlainLanguageClue(item.clue, categories)}</span>
+                        {item.isDirectAnswer && <span style={{ fontSize: '0.75em', color: '#cc241d', fontStyle: 'italic' }}>⚠️ Direct Answer</span>}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.75em', color: '#888', minWidth: '60px' }}>
+                        <span title="Heuristic Score">Sc: <span style={{ color: '#d79921' }}>{Math.round(item.score)}</span></span>
+                        <span title="Visual Updates">Upd: <span style={{ color: '#98971a' }}>{item.updates !== undefined ? item.updates : item.deductions}</span></span>
+                        <span title="Projected Completion">%: <span style={{ color: '#8ec07c' }}>{Math.round(item.percentComplete)}%</span></span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          try {
+                            const result = session?.useClue(item.clue);
+                            if (result && session && puzzle) {
+                              const newStep = { clue: item.clue } as any;
+                              const newProof = [...puzzle.proofChain, newStep];
+                              const newClues = [...puzzle.clues, item.clue];
+                              setPuzzle({ ...puzzle, clues: newClues, proofChain: newProof });
+                              setSelectedStep(newProof.length - 1);
+                              if (result.solved) {
+                                showAlert("Puzzle Solved!", "The grid is fully solved!");
+                                setInteractiveSolved(true);
+                              }
+                            }
+                          } catch (e: any) {
+                            showAlert("Cannot Add Clue", e.message || "An error occurred.");
+                          }
+                        }}
+                        disabled={item.isDirectAnswer}
+                        style={{
+                          padding: '4px 10px',
+                          backgroundColor: item.isDirectAnswer ? '#3c3836' : '#689d6a',
+                          color: item.isDirectAnswer ? '#7c6f64' : '#282828',
+                          border: 'none',
+                          borderRadius: '3px',
+                          cursor: item.isDirectAnswer ? 'not-allowed' : 'pointer',
+                          fontWeight: 'bold',
+                          fontSize: '0.8em'
+                        }}
+                      >
+                        {item.isDirectAnswer ? 'Solved' : 'Add'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    {/* Interactive Clue Scrubber */ }
         <div className="clue-list" style={{ padding: '0' }}>
           {/* Step 0: Start */}
           <div
@@ -2486,318 +2556,348 @@ function App() {
         </div>
       </div >
     );
+    );
+};
+
+const handleRenameSave = (id: string, newTitle: string) => {
+  const newSaves = savedPuzzles.map(s => s.id === id ? { ...s, title: newTitle } : s);
+  setSavedPuzzles(newSaves);
+  localStorage.setItem('saved_puzzles_list', JSON.stringify(newSaves));
+};
+
+const handleShare = () => {
+  const shareConfig = {
+    categories: categories,
+    seed: seedInput,
+    targetFact: useSpecificGoal ? {
+      c1: categories[targetCat1Idx]?.id,
+      c2: categories[targetCat2Idx]?.id,
+      val: categories[targetCat1Idx]?.values[targetVal1Idx]
+    } : undefined
   };
 
-  const renderSteps = () => {
-    const items = [];
-    // Solution (Step 4)
-    if (activeStep >= 4) items.push(renderSolutionStep());
+  const json = JSON.stringify(shareConfig);
+  const b64 = btoa(json);
+  const url = `${window.location.origin}${window.location.pathname}?share=${b64}`;
 
-    // Generate (Step 3)
-    if (activeStep >= 3) items.push(renderGenerateStep());
+  navigator.clipboard.writeText(url).then(() => {
+    showAlert("Link Copied!", "Share link copied to clipboard. Send it to a friend!");
+  }).catch(() => {
+    showAlert("Error", "Failed to copy link.");
+  });
+};
 
-    // Goal (Step 2)
-    if (activeStep >= 2) items.push(renderGoalStep());
+const renderSteps = () => {
+  const items = [];
+  // Solution (Step 4)
+  if (activeStep >= 4) items.push(renderSolutionStep());
 
-    // Story (Step 1)
-    if (activeStep >= 1) items.push(renderStoryStep());
+  // Generate (Step 3)
+  if (activeStep >= 3) items.push(renderGenerateStep());
 
-    // Structure (Step 0) - Always visible
-    items.push(renderStructureStep());
+  // Goal (Step 2)
+  if (activeStep >= 2) items.push(renderGoalStep());
 
-    return items;
-  };
+  // Story (Step 1)
+  if (activeStep >= 1) items.push(renderStoryStep());
 
-  // derived state for reset
-  const canReset = activeStep > 0 || puzzle !== null || seedInput !== '' || flavorText !== '';
+  // Structure (Step 0) - Always visible
+  items.push(renderStructureStep());
 
-  return (
-    <div style={{ display: 'flex', width: '100%', minHeight: '100vh', backgroundColor: '#111', flexDirection: 'column' }}>
-      <Sidebar
-        currentStep={activeStep}
-        steps={STEPS}
-        onStepSelect={jumpToStep}
-        maxReachableStep={maxStep}
-        onReset={handleReset}
-        canReset={canReset}
-        onExport={handleExportJSON}
-        onImport={handleImportJSON}
-        onSave={handleQuickSave}
-        onManageSaves={() => setIsSavesModalOpen(true)}
-        onInfo={() => setIsInfoModalOpen(true)}
-        isDirty={isDirty}
-      />
+  return items;
+};
 
-      <Modal
-        isOpen={isResetModalOpen}
-        onClose={() => setIsResetModalOpen(false)}
-        onConfirm={confirmReset}
-        title="Reset Application"
-        message="Are you sure you want to reset everything? This will clear your current puzzle, settings, and saved data. This action cannot be undone."
-      />
+// derived state for reset
+const canReset = activeStep > 0 || puzzle !== null || seedInput !== '' || flavorText !== '';
 
-      <Modal
-        isOpen={isTimerResetModalOpen}
-        onClose={() => setIsTimerResetModalOpen(false)}
-        onConfirm={() => {
-          resetTimer();
-          setIsTimerResetModalOpen(false);
-        }}
-        title="Reset Timer"
-        message="Are you sure you want to reset the puzzle timer? This will set it back to 00:00."
-      />
+return (
+  <div style={{ display: 'flex', width: '100%', minHeight: '100vh', backgroundColor: '#111', flexDirection: 'column' }}>
+    <Sidebar
+      currentStep={activeStep}
+      steps={STEPS}
+      onStepSelect={jumpToStep}
+      maxReachableStep={maxStep}
+      onReset={handleReset}
+      canReset={canReset}
+      onExport={handleExportJSON}
+      onImport={handleImportJSON}
+      onSave={handleQuickSave}
+      onManageSaves={() => setIsSavesModalOpen(true)}
+      onInfo={() => setIsInfoModalOpen(true)}
+      isDirty={isDirty}
+    />
 
-      <Modal
-        isOpen={isInfoModalOpen}
-        onClose={() => setIsInfoModalOpen(false)}
-        title="About Logic Puzzle Generator"
-        type="info"
-      >
-        <div style={{ color: '#ccc', lineHeight: '1.5', fontSize: '0.95em' }}>
-          <p style={{ marginTop: 0 }}>
-            <strong>Logic Puzzle Generator</strong> creates solvable logic grid puzzles using a constraint-based engine.
-          </p>
+    <Modal
+      isOpen={isResetModalOpen}
+      onClose={() => setIsResetModalOpen(false)}
+      onConfirm={confirmReset}
+      title="Reset Application"
+      message="Are you sure you want to reset everything? This will clear your current puzzle, settings, and saved data. This action cannot be undone."
+    />
 
-          <div style={{ margin: '15px 0', padding: '12px', backgroundColor: '#333', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
-            <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#fff', fontSize: '0.95em' }}>Open Source & Free (MIT)</div>
-            <div style={{ fontSize: '0.9em' }}>
-              Free for personal and commercial use (e.g. puzzle books).
-            </div>
+    <Modal
+      isOpen={isTimerResetModalOpen}
+      onClose={() => setIsTimerResetModalOpen(false)}
+      onConfirm={() => {
+        resetTimer();
+        setIsTimerResetModalOpen(false);
+      }}
+      title="Reset Timer"
+      message="Are you sure you want to reset the puzzle timer? This will set it back to 00:00."
+    />
+
+    <Modal
+      isOpen={isInfoModalOpen}
+      onClose={() => setIsInfoModalOpen(false)}
+      title="About Logic Puzzle Generator"
+      type="info"
+    >
+      <div style={{ color: '#ccc', lineHeight: '1.5', fontSize: '0.95em' }}>
+        <p style={{ marginTop: 0 }}>
+          <strong>Logic Puzzle Generator</strong> creates solvable logic grid puzzles using a constraint-based engine.
+        </p>
+
+        <div style={{ margin: '15px 0', padding: '12px', backgroundColor: '#333', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '4px', color: '#fff', fontSize: '0.95em' }}>Open Source & Free (MIT)</div>
+          <div style={{ fontSize: '0.9em' }}>
+            Free for personal and commercial use (e.g. puzzle books).
           </div>
-
-          <p style={{ marginBottom: '8px' }}>Links:</p>
-          <ul style={{ paddingLeft: '20px', margin: 0 }}>
-            <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator#readme" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Documentation</a></li>
-            <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator/issues" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Report Issues</a></li>
-            <li><a href="https://github.com/joshhills/logic-puzzle-generator" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Source Code</a></li>
-          </ul>
         </div>
-      </Modal>
 
-      <SavedGamesModal
-        isOpen={isSavesModalOpen}
-        onClose={() => setIsSavesModalOpen(false)}
-        saves={savedPuzzles}
-        onLoad={handleLoadSave}
-        onDelete={handleDeleteRequest}
-      />
+        <p style={{ marginBottom: '8px' }}>Links:</p>
+        <ul style={{ paddingLeft: '20px', margin: 0 }}>
+          <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator#readme" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Documentation</a></li>
+          <li style={{ marginBottom: '4px' }}><a href="https://github.com/joshhills/logic-puzzle-generator/issues" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Report Issues</a></li>
+          <li><a href="https://github.com/joshhills/logic-puzzle-generator" target="_blank" rel="noopener noreferrer" style={{ color: '#3b82f6' }}>Source Code</a></li>
+        </ul>
+      </div>
+    </Modal>
 
-      {/* Generic Alert Modal */}
-      <Modal
-        isOpen={alertState.isOpen}
-        onClose={() => setAlertState({ ...alertState, isOpen: false })}
-        title={alertState.title}
-        message={alertState.message}
-        onConfirm={() => setAlertState({ ...alertState, isOpen: false })}
-        type="alert"
-      />
+    <SavedGamesModal
+      isOpen={isSavesModalOpen}
+      onClose={() => setIsSavesModalOpen(false)}
+      saves={savedPuzzles}
+      onLoad={handleLoadSave}
+      onDelete={handleDeleteRequest}
+      onRename={handleRenameSave}
+    />
 
-      {/* Delete Confirmation Modal */}
-      <Modal
-        isOpen={!!deleteConfirmId}
-        onClose={() => setDeleteConfirmId(null)}
-        title="Delete Save?"
-        message="Are you sure you want to delete this save? This cannot be undone."
-        onConfirm={confirmDeleteSave}
-        type="confirm"
-        confirmText="Delete"
-      />
+    {/* Generic Alert Modal */}
+    <Modal
+      isOpen={alertState.isOpen}
+      onClose={() => setAlertState({ ...alertState, isOpen: false })}
+      title={alertState.title}
+      message={alertState.message}
+      onConfirm={() => setAlertState({ ...alertState, isOpen: false })}
+      type="alert"
+    />
 
-
-
-      {/* Clue Removal Confirmation Modal */}
-      <Modal
-        isOpen={isRemoveModalOpen}
-        onClose={() => setClueToRemoveIndex(null)}
-        title="Remove Clue?"
-        message={`Are you sure you want to remove clue #${(clueToRemoveIndex ?? 0) + 1}? All subsequent deductions will be recalculated.`}
-        onConfirm={confirmRemoveClue}
-        type="confirm"
-        confirmText="Remove"
-      />
+    {/* Delete Confirmation Modal */}
+    <Modal
+      isOpen={!!deleteConfirmId}
+      onClose={() => setDeleteConfirmId(null)}
+      title="Delete Save?"
+      message="Are you sure you want to delete this save? This cannot be undone."
+      onConfirm={confirmDeleteSave}
+      type="confirm"
+      confirmText="Delete"
+    />
 
 
 
+    {/* Clue Removal Confirmation Modal */}
+    <Modal
+      isOpen={isRemoveModalOpen}
+      onClose={() => setClueToRemoveIndex(null)}
+      title="Remove Clue?"
+      message={`Are you sure you want to remove clue #${(clueToRemoveIndex ?? 0) + 1}? All subsequent deductions will be recalculated.`}
+      onConfirm={confirmRemoveClue}
+      type="confirm"
+      confirmText="Remove"
+    />
 
-      <div className="main-content">
 
-        {/* Top: Fixed Grid Visualization */}
-        <div style={{ padding: '20px', flex: '0 0 auto', borderBottom: '1px solid #333', overflow: 'auto', position: 'relative', zIndex: 10, backgroundColor: '#111' }}>
-          <div className="print-hide" style={{ position: 'absolute', top: '10px', right: '10px', color: '#666', fontSize: '0.8em', textTransform: 'uppercase' }}>
-            {puzzle ? (selectedStep === -1 ? 'Solution View' : (selectedStep === -2 ? 'Start Setup' : 'Step Preview')) : 'Preview Mode'}
-          </div>
-          {displayGrid && (
-            <div
-              className="grid-container"
-              style={{
-                width: 'fit-content',
-                margin: '20px auto',
-                padding: '20px',
-                backgroundColor: '#fff',
-                borderRadius: '16px',
-                border: '1px solid #000',
+
+
+    <div className="main-content">
+
+      {/* Top: Fixed Grid Visualization */}
+      <div style={{ padding: '20px', flex: '0 0 auto', borderBottom: '1px solid #333', overflow: 'auto', position: 'relative', zIndex: 10, backgroundColor: '#111' }}>
+        <div className="print-hide" style={{ position: 'absolute', top: '10px', right: '10px', color: '#666', fontSize: '0.8em', textTransform: 'uppercase' }}>
+          {puzzle ? (selectedStep === -1 ? 'Solution View' : (selectedStep === -2 ? 'Start Setup' : 'Step Preview')) : 'Preview Mode'}
+        </div>
+        {displayGrid && (
+          <div
+            className="grid-container"
+            style={{
+              width: 'fit-content',
+              margin: '20px auto',
+              padding: '20px',
+              backgroundColor: '#fff',
+              borderRadius: '16px',
+              border: '1px solid #000',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+              color: '#333',
+              overflowX: 'auto'
+            }}>
+
+            {/* Timer & Controls */}
+            {isTimerActive && (
+              <div className="print-hide" style={{
+                position: 'absolute',
+                top: '10px',
+                left: '10px',
+                zIndex: 100,
+                backgroundColor: '#282828',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                border: '1px solid #504945',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
-                boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                color: '#333',
-                overflowX: 'auto'
+                gap: '10px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
               }}>
+                <div style={{ fontFamily: 'monospace', fontSize: '1.2em', color: '#ebdbb2', fontWeight: 'bold' }}>
+                  {formatTime()}
+                </div>
+                <button
+                  onClick={togglePause}
+                  title={isPaused ? "Resume" : "Pause"}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fabd2f',
+                    cursor: 'pointer',
+                    fontSize: '1em'
+                  }}
+                >
+                  {isPaused ? '▶' : '⏸'}
+                </button>
+                <button
+                  onClick={() => setIsTimerResetModalOpen(true)}
+                  title="Reset Timer"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#fb4934',
+                    cursor: 'pointer',
+                    fontSize: '1em'
+                  }}
+                >
+                  ↺
+                </button>
+              </div>
+            )}
 
-              {/* Timer & Controls */}
-              {isTimerActive && (
-                <div className="print-hide" style={{
-                  position: 'absolute',
-                  top: '10px',
-                  left: '10px',
-                  zIndex: 100,
-                  backgroundColor: '#282828',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid #504945',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.3)'
-                }}>
-                  <div style={{ fontFamily: 'monospace', fontSize: '1.2em', color: '#ebdbb2', fontWeight: 'bold' }}>
-                    {formatTime()}
-                  </div>
+            {/* Header: Stable grid to prevent button jumping */}
+            {puzzle && (
+              <div className="print-hide" style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr auto 1fr',
+                width: '100%',
+                alignItems: 'center',
+                marginBottom: '15px',
+                padding: '0 10px'
+              }}>
+                {/* Left Spacer to keep center balanced */}
+                <div></div>
+
+                {/* Center: Mode Switcher */}
+                <div style={{ display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
                   <button
-                    onClick={togglePause}
-                    title={isPaused ? "Resume" : "Pause"}
+                    onClick={() => setViewMode('play')}
                     style={{
-                      background: 'transparent',
+                      padding: '6px 12px',
+                      borderRadius: '4px',
                       border: 'none',
-                      color: '#fabd2f',
+                      background: viewMode === 'play' ? '#fff' : 'transparent',
+                      color: viewMode === 'play' ? '#10b981' : '#666',
+                      fontWeight: viewMode === 'play' ? 'bold' : 'normal',
+                      boxShadow: viewMode === 'play' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
                       cursor: 'pointer',
-                      fontSize: '1em'
+                      transition: 'all 0.2s'
                     }}
                   >
-                    {isPaused ? '▶' : '⏸'}
+                    Play Mode
                   </button>
                   <button
-                    onClick={() => setIsTimerResetModalOpen(true)}
-                    title="Reset Timer"
+                    onClick={() => setViewMode('solution')}
                     style={{
-                      background: 'transparent',
+                      padding: '6px 12px',
+                      borderRadius: '4px',
                       border: 'none',
-                      color: '#fb4934',
+                      background: viewMode === 'solution' ? '#fff' : 'transparent',
+                      color: viewMode === 'solution' ? '#3b82f6' : '#666',
+                      fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
+                      boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
                       cursor: 'pointer',
-                      fontSize: '1em'
+                      transition: 'all 0.2s'
                     }}
                   >
-                    ↺
+                    Solution View
                   </button>
                 </div>
-              )}
 
-              {/* Header: Stable grid to prevent button jumping */}
-              {puzzle && (
-                <div className="print-hide" style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr auto 1fr',
-                  width: '100%',
-                  alignItems: 'center',
-                  marginBottom: '15px',
-                  padding: '0 10px'
-                }}>
-                  {/* Left Spacer to keep center balanced */}
-                  <div></div>
-
-                  {/* Center: Mode Switcher */}
-                  <div style={{ display: 'flex', gap: '5px', backgroundColor: '#eee', padding: '4px', borderRadius: '6px' }}>
-                    <button
-                      onClick={() => setViewMode('play')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: viewMode === 'play' ? '#fff' : 'transparent',
-                        color: viewMode === 'play' ? '#10b981' : '#666',
-                        fontWeight: viewMode === 'play' ? 'bold' : 'normal',
-                        boxShadow: viewMode === 'play' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      Play Mode
-                    </button>
-                    <button
-                      onClick={() => setViewMode('solution')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '4px',
-                        border: 'none',
-                        background: viewMode === 'solution' ? '#fff' : 'transparent',
-                        color: viewMode === 'solution' ? '#3b82f6' : '#666',
-                        fontWeight: viewMode === 'solution' ? 'bold' : 'normal',
-                        boxShadow: viewMode === 'solution' ? '0 1px 2px rgba(0,0,0,0.1)' : 'none',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      Solution View
-                    </button>
-                  </div>
-
-                  {/* Right: Check Answers (only in Play Mode) */}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    {viewMode === 'play' && (
-                      <label style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        cursor: 'pointer',
-                        fontSize: '0.85em',
-                        color: '#444',
-                        userSelect: 'none'
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={checkAnswers}
-                          onChange={(e) => setCheckAnswers(e.target.checked)}
-                        />
-                        Check Answers
-                      </label>
-                    )}
-                  </div>
+                {/* Right: Check Answers (only in Play Mode) */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  {viewMode === 'play' && (
+                    <label style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      fontSize: '0.85em',
+                      color: '#444',
+                      userSelect: 'none'
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={checkAnswers}
+                        onChange={(e) => setCheckAnswers(e.target.checked)}
+                      />
+                      Check Answers
+                    </label>
+                  )}
                 </div>
-              )}
+              </div>
+            )}
 
-              <LogicGridPuzzle
-                grid={displayGrid}
-                categories={categories}
-                targetFact={(activeStep >= 1 && useSpecificGoal) ? {
-                  category1Id: categories[targetCat1Idx]?.id,
-                  value1: categories[targetCat1Idx]?.values[targetVal1Idx] as string,
-                  category2Id: categories[targetCat2Idx]?.id
-                } : undefined}
+            <LogicGridPuzzle
+              grid={displayGrid}
+              categories={categories}
+              targetFact={(activeStep >= 1 && useSpecificGoal) ? {
+                category1Id: categories[targetCat1Idx]?.id,
+                value1: categories[targetCat1Idx]?.values[targetVal1Idx] as string,
+                category2Id: categories[targetCat2Idx]?.id
+              } : undefined}
 
-                // Play Mode Props
-                viewMode={viewMode}
-                userPlayState={userPlayState}
-                checkAnswers={checkAnswers}
-                solution={puzzle?.solution}
-                // Only allow interaction if we have a puzzle AND we are in the Solution/Play step (Step index 2)
-                // We allow playing even during history scrubbing (User Request)
-                onInteract={(puzzle && activeStep >= 3) ? handleCellInteraction : undefined}
-              />
-            </div>
-          )}
-        </div>
+              // Play Mode Props
+              viewMode={viewMode}
+              userPlayState={userPlayState}
+              checkAnswers={checkAnswers}
+              solution={puzzle?.solution}
+              // Only allow interaction if we have a puzzle AND we are in the Solution/Play step (Step index 2)
+              // We allow playing even during history scrubbing (User Request)
+              onInteract={(puzzle && activeStep >= 3) ? handleCellInteraction : undefined}
+            />
+          </div>
+        )}
+      </div>
 
-        {/* Bottom: Scrollable Accordion Flow (Natural Page Scroll) */}
-        <div className="step-container">
-          <div className="print-hide" style={{ marginBottom: '20px', color: '#666', textTransform: 'uppercase', letterSpacing: '2px', fontSize: '0.8em' }}>Configuration Steps</div>
-          {renderSteps()}
+      {/* Bottom: Scrollable Accordion Flow (Natural Page Scroll) */}
+      <div className="step-container">
+        <div className="print-hide" style={{ marginBottom: '20px', color: '#666', textTransform: 'uppercase', letterSpacing: '2px', fontSize: '0.8em' }}>Configuration Steps</div>
+        {renderSteps()}
 
-          {/* Spacer */}
-          <div style={{ height: '100px' }}></div>
-        </div>
+        {/* Spacer */}
+        <div style={{ height: '100px' }}></div>
       </div>
     </div>
-  );
+  </div>
+);
 }
 
 export default App;
