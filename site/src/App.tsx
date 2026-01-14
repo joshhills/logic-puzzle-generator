@@ -593,9 +593,9 @@ function App() {
       setSeedInput(data.config.seedInput || '');
       setFlavorText(data.config.flavorText || '');
       setPuzzleTitle(data.config.puzzleTitle || '');
-      setTargetCat1Idx(data.config.targetCat1Idx || 0);
-      setTargetVal1Idx(data.config.targetVal1Idx || 0);
-      setTargetCat2Idx(data.config.targetCat2Idx || 1);
+      setTargetCat1Idx(data.config.targetCat1Idx ?? 0);
+      setTargetVal1Idx(data.config.targetVal1Idx ?? 0);
+      setTargetCat2Idx(data.config.targetCat2Idx ?? 1);
       setUseSpecificGoal(data.config.useSpecificGoal ?? true);
 
       setPuzzle(data.puzzle || null);
@@ -1778,12 +1778,6 @@ function App() {
               <h2 style={{ margin: '0 0 10px 0', color: '#fff', fontSize: '1.5em' }}>{puzzleTitle}</h2>
             )}
             <h3 className="print-hide" style={{ margin: '0 0 5px 0', color: isInteractiveMode ? '#8ec07c' : '#10b981' }}>{isInteractiveMode ? 'Interactive Session' : '5. Clues Generated!'}</h3>
-            <button
-              style={{ width: '100%', marginBottom: '10px', padding: '10px', background: 'transparent', border: '1px solid #444', color: '#10b981', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
-              onClick={handleShare}
-            >
-              Share Configuration 🔗
-            </button>
             <div style={{ color: '#aaa', fontSize: '0.9em' }}>
               {useSpecificGoal && puzzle?.targetFact ? (
                 <>Goal: Find <strong>{puzzle.targetFact.category2Id}</strong> for <strong>{puzzle.targetFact.value1}</strong> ({puzzle.targetFact.category1Id})</>
@@ -1793,6 +1787,23 @@ function App() {
             </div>
           </div>
           <div className="print-hide" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <button
+              onClick={handleShare}
+              style={{
+                background: 'transparent',
+                border: '1px solid #10b981',
+                color: '#10b981',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                padding: '8px 16px',
+                borderRadius: '6px',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(16, 185, 129, 0.1)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >
+              Share Configuration 🔗
+            </button>
             {(!isInteractiveMode || interactiveSolved) && (
               <>
                 <button
