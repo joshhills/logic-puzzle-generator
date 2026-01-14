@@ -3,6 +3,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.4] - 2026-01-14
+### Added
+- **UI/UX**: Auto-completion check! When the grid is fully filled, the app now automatically validates the solution.
+    - **Success**: Timer stops and a success modal appears.
+    - **Failure**: A "Check Solution" modal appears allowing you to continue.
+- **UI/UX**: Timer now waits for the Generative Session to complete (puzzle "Released") before counting down.
+- **UI/UX**: Clicking "Reroll" now properly resets the timer and clears the interactive play grid.
+
 ## [1.3.3] - 2026-01-14
 ### Fixed
 - **SOLVER CRITICAL**: Fixed a logic bug in `BETWEEN` clues where transitive deductions (e.g., A < B < C) were not fully propagating. If C restricted B's upper bound, A's upper bound wasn't correctly updated. The solver now stabilizes these deductions internally.

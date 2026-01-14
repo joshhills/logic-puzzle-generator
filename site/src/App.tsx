@@ -148,8 +148,12 @@ function App() {
 
   // Timer Hook
   // Active if in Interactive Gen Session OR if in Standard Mode 'Play Mode'
-  // Note: We need to know if we have a puzzle to start timer in standard mode, so we use 'puzzle' existence.
-  const isTimerActive = isInteractiveMode || (!!puzzle && viewMode === 'play');
+  // Timer Logic:
+  // - Standard Mode: Active if puzzle exists and in Play Mode.
+  // - Interactive Mode: Active ONLY if puzzle is SOLVED (session complete) AND in Play Mode.
+  // Actually, user wants: "in the generative session the timer should not advance until there is a complete puzzle"
+  // This implies: isInteractiveMode AND interactiveSolved.
+  const isTimerActive = (isInteractiveMode ? interactiveSolved : !!puzzle) && viewMode === 'play';
   const { seconds, isPaused, resetTimer, togglePause, formatTime, setSeconds } = usePuzzleTimer(isTimerActive);
 
   // Scroll refs
@@ -605,6 +609,76 @@ function App() {
       newState[key] = next;
     }
     setUserPlayState(newState);
+
+    // --- Auto-Completion Check ---
+    if (puzzle && puzzle.solution) {
+      // Check if grid is full
+      const totalCells = categories.length * (categories.length - 1) / 2 * Math.pow(categories[0].values.length, 2);
+      // Wait, calculation is tricky.
+      // Logic: For every unique pair of categories (C1, C2), there are N*N cells.
+      // Number of pairs = K*(K-1)/2. Total Cells = Pairs * N^2.
+      // BUT `userPlayState` only stores explicitly marked cells (T or F).
+      // A "Full" grid means every cell has a mark? Or just every "True" is found?
+      // User said: "fills in the entire play board".
+      // Usually implies every cell has T/F.
+
+      // Let's assume completeness based on "All Truths Found" is better UX?
+      // Or literally every cell filled?
+      // Most users play by eliminating.
+      // Let's check if the number of entries in `newState` == Total Cells.
+
+      // Calculate Total Expected Keys
+      let expectedKeys = 0;
+      const N = categories[0].values.length;
+      const numCats = categories.length;
+      const totalPairs = (numCats * (numCats - 1)) / 2;
+      const totalGridCells = totalPairs * N * N;
+
+      if (Object.keys(newState).length === totalGridCells) {
+        // Check Correctness
+        let isCorrect = true;
+        for (const [k, v] of Object.entries(newState)) {
+          const [cA, cB, vA, vB] = k.split(':');
+
+          // Solution is Record<CatId, Record<BaseId, Value>>
+          const sol = puzzle.solution;
+          const catAMap = sol[cA] || {};
+          const catBMap = sol[cB] || {};
+
+          // Find base ID for vA and vB
+          // Value could be string or number, ensure strict comparison or string normalization?
+          // App usually normalizes to string for UI but values are stored as string|number.
+          // catAMap values are valueLabels.
+
+          const getBaseId = (map: Record<string, string | number>, val: string) => {
+            return Object.entries(map).find(([_, v]) => String(v) === val)?.[0];
+          };
+
+          const baseA = getBaseId(catAMap, vA);
+          const baseB = getBaseId(catBMap, vB);
+
+          // If either value is not in solution (shouldn't happen), assume incorrect?
+          if (baseA === undefined || baseB === undefined) {
+            isCorrect = false;
+            break;
+          }
+
+          const shouldMatch = baseA === baseB;
+          if (v === 'T' && !shouldMatch) isCorrect = false;
+          if (v === 'F' && shouldMatch) isCorrect = false;
+
+          if (!isCorrect) break;
+        }
+
+        if (isCorrect) {
+          togglePause(); // Stop timer
+          showAlert("Congratulations!", "Puzzle completed correctly!");
+        } else {
+          // Show "Something doesn't look right"
+          showAlert("Check Solution", "Something doesn't look right. Keep trying!");
+        }
+      }
+    }
   };
 
   const handleCancel = () => {
@@ -693,6 +767,7 @@ function App() {
           categories: categories,
           targetFact: targetFact as any
         } as any);
+        setUserPlayState({}); // Reset play board on reroll
         resetTimer(); // Reset timer on new generation
 
         setSelectedStep(-2);
