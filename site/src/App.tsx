@@ -355,8 +355,23 @@ function App() {
         // Restore target fact logic if possible
         if (config.targetFact) {
           setUseSpecificGoal(true);
-          // Need to set indices based on IDs, but might be fragile if IDs changed.
-          // For now, minimal support.
+
+          if (config.categories && config.targetFact.c1 && config.targetFact.c2) {
+            const cats = config.categories as AppCategoryConfig[];
+
+            const c1Idx = cats.findIndex(c => c.id === config.targetFact.c1);
+            const c2Idx = cats.findIndex(c => c.id === config.targetFact.c2);
+
+            if (c1Idx !== -1) {
+              setTargetCat1Idx(c1Idx);
+              const valIdx = cats[c1Idx].values.findIndex(v => v === config.targetFact.val);
+              if (valIdx !== -1) setTargetVal1Idx(valIdx);
+            }
+
+            if (c2Idx !== -1) {
+              setTargetCat2Idx(c2Idx);
+            }
+          }
         }
 
         showAlert("Shared Puzzle Loaded", "Configuration loaded from share link.");
