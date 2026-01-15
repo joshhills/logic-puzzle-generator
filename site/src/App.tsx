@@ -363,11 +363,7 @@ function App() {
             const c1Idx = cats.findIndex(c => c.id === config.targetFact.c1);
             const c2Idx = cats.findIndex(c => c.id === config.targetFact.c2);
 
-            console.log("Share Load Debug:", {
-              targetFact: config.targetFact,
-              cats: cats.map(c => ({ id: c.id })),
-              c1Idx, c2Idx
-            });
+
 
             if (c1Idx !== -1) {
               setTargetCat1Idx(c1Idx);
@@ -380,7 +376,6 @@ function App() {
             } else {
               // Fallback to ensure distinct category
               const fallback = c1Idx === 0 ? 1 : 0;
-              console.warn("Share Load: c2Idx invalid or collision. Fallback to:", fallback);
               setTargetCat2Idx(fallback);
             }
           }
