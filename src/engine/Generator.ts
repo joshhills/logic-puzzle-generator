@@ -1496,6 +1496,9 @@ export class Generator {
 
         let complexityBonus = 0;
         switch (clueType) {
+            case ClueType.BINARY:
+                complexityBonus = (clue as BinaryClue).operator === BinaryOperator.IS ? 1.5 : 1.0;
+                break;
             case ClueType.ORDINAL:
                 complexityBonus = 1.5;
                 if ((clue as OrdinalClue).operator >= 2) complexityBonus = 5.0; // Boost Negative Ordinals
