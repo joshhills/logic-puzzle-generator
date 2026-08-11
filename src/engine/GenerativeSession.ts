@@ -4,6 +4,7 @@ import { Clue } from './Clue';
 import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 import type { Generator } from './Generator';
+import { stableSortInPlace, seededShuffleInPlace } from './determinism';
 
 
 export class GenerativeSession {
@@ -100,7 +101,7 @@ export class GenerativeSession {
             results.push({ clue, score, deductions, updates, isDirectAnswer, percentComplete });
         }
 
-        return results.sort((a, b) => b.score - a.score).slice(0, limit);
+        return stableSortInPlace(results, (a, b) => b.score - a.score).slice(0, limit);
     }
 
     public useClue(clue: Clue): { remaining: number, solved: boolean } {
@@ -235,7 +236,7 @@ export class GenerativeSession {
         let bestScore = -Infinity;
 
         // Shuffle validClues first to ensure variety.
-        const candidates = [...validClues].sort(() => Math.random() - 0.5);
+        const candidates = seededShuffleInPlace([...validClues], Math.random);
 
         // Take top N candidates?
         const searchLimit = 50;

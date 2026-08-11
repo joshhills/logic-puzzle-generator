@@ -39,6 +39,7 @@ The intention is for this library to empower narrative designers to create myste
     - **Target Selection**: Which fact serves as the mystery focus.
     - **Clue Template Variation**: Randomization of names, values, and sentence structures.
     - **Search & Scoring**: The order in which candidates are evaluated.
+- **Cross-Engine & Cross-Platform Determinism**: Guaranteed identical puzzle generation across different platforms and JS runtimes (Node V8, browsers, and React Native Hermes) by utilizing a custom stable-sort polyfill and an engine-agnostic Fisher-Yates seeded shuffle.
 
 ## Installation
 

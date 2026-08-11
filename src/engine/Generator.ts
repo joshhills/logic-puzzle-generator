@@ -5,6 +5,7 @@ import { LogicGrid } from './LogicGrid';
 import { Solver } from './Solver';
 import { GenerativeSession } from './GenerativeSession';
 import { getRecommendedBounds } from './DifficultyBounds';
+import { stableSortInPlace, seededShuffleInPlace } from './determinism';
 
 /**
  * Represents a single step in the logical deduction path.
@@ -763,13 +764,13 @@ export class Generator {
             if (overrideStrategy) {
                 const isStall = overrideStrategy === 'STALL';
                 // Sort by weak/strong immediately
-                orderedCandidates = candidates.sort((a, b) => {
+                orderedCandidates = stableSortInPlace(candidates, (a, b) => {
                     const diff = a.deductions - b.deductions;
                     return isStall ? diff : -diff; // Weakest first vs Strongest first
                 });
             } else {
                 // 1. Primary Heuristic (Balance)
-                candidates.sort((a, b) => b.score - a.score);
+                stableSortInPlace(candidates, (a, b) => b.score - a.score);
                 primaryCandidate = candidates[0];
             }
 
@@ -781,14 +782,14 @@ export class Generator {
                     const expectedProgress = Math.pow(stepsTaken / targetCount, 1.8);
                     if (progress > expectedProgress) {
                         // STALL: Prefer Min Deductions
-                        const sortedByWeakness = [...candidates].sort((a, b) => {
+                        const sortedByWeakness = stableSortInPlace([...candidates], (a, b) => {
                             if (a.deductions !== b.deductions) return a.deductions - b.deductions;
                             return b.score - a.score;
                         });
                         correctionCandidate = sortedByWeakness[0];
                     } else {
                         // SPEED: Prefer Max Deductions
-                        const sortedByStrength = [...candidates].sort((a, b) => {
+                        const sortedByStrength = stableSortInPlace([...candidates], (a, b) => {
                             if (a.deductions !== b.deductions) return b.deductions - a.deductions;
                             return b.score - a.score;
                         });
@@ -907,7 +908,7 @@ export class Generator {
 
         for (let i = 1; i < categories.length; i++) {
             const currentCategory = categories[i];
-            const shuffledValues = [...currentCategory.values].sort(() => this.random() - 0.5);
+            const shuffledValues = seededShuffleInPlace([...currentCategory.values], this.random);
             let i_shuffled = 0;
             for (const val of baseCategory.values) {
                 const record = valueMap.get(val);
@@ -986,7 +987,7 @@ export class Generator {
 
         // Generate Ordinal and SuperlativeClues
         for (const ordCategory of categories.filter(c => c.type === CategoryType.ORDINAL)) {
-            const sortedValues = [...ordCategory.values].sort((a, b) => (a as number) - (b as number));
+            const sortedValues = stableSortInPlace([...ordCategory.values], (a, b) => (a as number) - (b as number));
             const minVal = sortedValues[0];
             const maxVal = sortedValues[sortedValues.length - 1];
 
