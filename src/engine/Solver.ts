@@ -11,6 +11,21 @@ import { LogicGrid } from './LogicGrid';
 export class Solver {
 
     /**
+     * Builds a stable rank map for an ordinal category's values, sorted numerically.
+     * This is the single source of truth for "greater than / less than" comparisons,
+     * and must be used instead of raw array indices, because the values array may be
+     * passed in any order (e.g. shuffled for daily puzzle variety).
+     *
+     * @returns `valueToRank` – a Map<ValueLabel, number> where rank 0 = smallest value.
+     * @returns `rankToValue` – an array of values ordered from smallest to largest.
+     */
+    private getOrdinalRankMap(values: ValueLabel[]): { valueToRank: Map<ValueLabel, number>; rankToValue: ValueLabel[] } {
+        const rankToValue = [...values].sort((a: any, b: any) => (a as number) - (b as number));
+        const valueToRank = new Map<ValueLabel, number>(rankToValue.map((v: ValueLabel, rank: number) => [v, rank]));
+        return { valueToRank, rankToValue };
+    }
+
+    /**
      * Applies a single clue to the grid and propagates logical deductions.
      * 
      * This method runs a loop that explicitly applies the clue and then repeatedly
@@ -75,15 +90,21 @@ export class Solver {
 
         const isNot = clue.operator === CrossOrdinalOperator.NOT_MATCH;
 
-        // Helper to get possible indices for an item in its ordinal category
-        const getPossibleIndices = (itemCat: string, itemVal: ValueLabel, ordCat: string, ordConfig: CategoryConfig) => {
+        // Helper to get possible ranks for an item in its ordinal category.
+        // Uses getOrdinalRankMap so that rank reflects numerical ordering, not array position.
+        const getPossibleRanks = (itemCat: string, itemVal: ValueLabel, ordCat: string, ordConfig: CategoryConfig) => {
+            const { valueToRank } = this.getOrdinalRankMap(ordConfig.values);
             return ordConfig.values
-                .map((v, i) => ({ val: v, idx: i }))
-                .filter(v => grid.isPossible(itemCat, itemVal, ordCat, v.val));
+                .map((v: ValueLabel) => ({ val: v, idx: valueToRank.get(v)! }))
+                .filter((v: { val: ValueLabel; idx: number }) => grid.isPossible(itemCat, itemVal, ordCat, v.val));
         };
 
-        const eligible1 = getPossibleIndices(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
-        const eligible2 = getPossibleIndices(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
+        // rankToValue arrays for offset-based lookups (e.g. "one step higher in rank")
+        const { rankToValue: rankToValue1 } = this.getOrdinalRankMap(ord1Config.values);
+        const { rankToValue: rankToValue2 } = this.getOrdinalRankMap(ord2Config.values);
+
+        const eligible1 = getPossibleRanks(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
+        const eligible2 = getPossibleRanks(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
 
         if (!isNot) {
             // --- POSITIVE LOGIC (MATCH) ---
@@ -91,7 +112,7 @@ export class Solver {
             // Filter 1 based on 2
             for (const cand1 of eligible1) {
                 const targetIdx1 = cand1.idx + clue.offset1;
-                const targetVal1 = ord1Config.values[targetIdx1];
+                const targetVal1 = rankToValue1[targetIdx1];
 
                 // Bounds check
                 if (targetVal1 === undefined) {
@@ -109,7 +130,7 @@ export class Solver {
                 let supported = false;
                 for (const cand2 of eligible2) {
                     const targetIdx2 = cand2.idx + clue.offset2;
-                    const targetVal2 = ord2Config.values[targetIdx2];
+                    const targetVal2 = rankToValue2[targetIdx2];
 
                     if (targetVal2 !== undefined) {
                         // Check if (Ord1=TargetVal1) is compatible with (Ord2=TargetVal2)
@@ -135,7 +156,7 @@ export class Solver {
             // Filter 2 based on 1 (Symmetric)
             for (const cand2 of eligible2) {
                 const targetIdx2 = cand2.idx + clue.offset2;
-                const targetVal2 = ord2Config.values[targetIdx2];
+                const targetVal2 = rankToValue2[targetIdx2];
 
                 if (targetVal2 === undefined) {
                     grid.setPossibility(clue.item2Cat, clue.item2Val, clue.ordinal2, cand2.val, false);
@@ -151,7 +172,7 @@ export class Solver {
                 let supported = false;
                 for (const cand1 of eligible1) {
                     const targetIdx1 = cand1.idx + clue.offset1;
-                    const targetVal1 = ord1Config.values[targetIdx1];
+                    const targetVal1 = rankToValue1[targetIdx1];
 
                     if (targetVal1 !== undefined) {
                         if (grid.isPossible(clue.ordinal1, targetVal1, clue.ordinal2, targetVal2)) {
@@ -174,14 +195,14 @@ export class Solver {
 
             // Lock linkage if unique
             // We re-query indices as they might have been reduced above
-            const finalEligible1 = getPossibleIndices(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
-            const finalEligible2 = getPossibleIndices(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
+            const finalEligible1 = getPossibleRanks(clue.item1Cat, clue.item1Val, clue.ordinal1, ord1Config);
+            const finalEligible2 = getPossibleRanks(clue.item2Cat, clue.item2Val, clue.ordinal2, ord2Config);
 
             if (finalEligible1.length === 1 && finalEligible2.length === 1) {
                 const t1 = finalEligible1[0].idx + clue.offset1;
                 const t2 = finalEligible2[0].idx + clue.offset2;
-                const v1 = ord1Config.values[t1];
-                const v2 = ord2Config.values[t2];
+                const v1 = rankToValue1[t1];
+                const v2 = rankToValue2[t2];
 
                 if (v1 !== undefined && v2 !== undefined) {
                     if (grid.getPossibilitiesCount(clue.ordinal1, v1, clue.ordinal2) > 1) {
@@ -221,8 +242,8 @@ export class Solver {
             if (eligible1.length === 1 && eligible2.length === 1) {
                 const t1 = eligible1[0].idx + clue.offset1;
                 const t2 = eligible2[0].idx + clue.offset2;
-                const v1 = ord1Config.values[t1];
-                const v2 = ord2Config.values[t2];
+                const v1 = rankToValue1[t1];
+                const v2 = rankToValue2[t2];
 
                 if (v1 !== undefined && v2 !== undefined) {
                     if (grid.isPossible(clue.ordinal1, v1, clue.ordinal2, v2)) {
@@ -243,7 +264,7 @@ export class Solver {
             // Iterate all candidates for Item1
             for (const cand1 of eligible1) {
                 const targetIdx1 = cand1.idx + clue.offset1;
-                const targetVal1 = ord1Config.values[targetIdx1];
+                const targetVal1 = rankToValue1[targetIdx1];
                 if (targetVal1 === undefined) continue; // Out of bounds, invalid path (should have been eliminated elsewhere? Or maybe just this path is invalid)
 
                 // If `targetVal1` is strictly linked to some `targetVal2`...
@@ -252,7 +273,7 @@ export class Solver {
                 // Check against all candidates for Item2
                 for (const cand2 of eligible2) {
                     const targetIdx2 = cand2.idx + clue.offset2;
-                    const targetVal2 = ord2Config.values[targetIdx2];
+                    const targetVal2 = rankToValue2[targetIdx2];
                     if (targetVal2 === undefined) continue;
 
                     // If we hypothetically choose both candidates:
@@ -495,17 +516,15 @@ export class Solver {
         const ordCategory = categories.find(c => c.id === clue.ordinalCat);
         if (!ordCategory || ordCategory.type !== CategoryType.ORDINAL) return 0;
 
-        // Items must be adjacent in the sorted unique values list.
-        const ordValues = ordCategory.values as number[]; // Validated elsewhere
-        const valToIndex = new Map<number, number>();
-        ordValues.forEach((v, i) => valToIndex.set(v, i));
+        // Items must be adjacent by numerical rank, not by array position.
+        const { valueToRank, rankToValue } = this.getOrdinalRankMap(ordCategory.values);
 
-        const getNeighbors = (val: number): number[] => {
-            const idx = valToIndex.get(val);
-            if (idx === undefined) return [];
-            const neighbors: number[] = [];
-            if (idx > 0) neighbors.push(ordValues[idx - 1]);
-            if (idx < ordValues.length - 1) neighbors.push(ordValues[idx + 1]);
+        const getNeighbors = (val: ValueLabel): ValueLabel[] => {
+            const rank = valueToRank.get(val);
+            if (rank === undefined) return [];
+            const neighbors: ValueLabel[] = [];
+            if (rank > 0) neighbors.push(rankToValue[rank - 1]);
+            if (rank < rankToValue.length - 1) neighbors.push(rankToValue[rank + 1]);
             return neighbors;
         };
 
@@ -516,7 +535,7 @@ export class Solver {
         ) => {
             let localDeductions = 0;
             // Iterate over all possible values V1 for itemCat:itemVal
-            for (const v1 of ordValues) {
+            for (const v1 of ordCategory.values) {
                 if (grid.isPossible(itemCat, itemVal, clue.ordinalCat, v1)) {
                     // Check if ANY neighbor V2 is possible for neighborCat:neighborVal
                     const neighbors = getNeighbors(v1);
@@ -727,13 +746,16 @@ export class Solver {
         const ordCatConfig = categories.find(c => c.id === constraint.ordinalCat);
         if (!ordCatConfig || ordCatConfig.type !== CategoryType.ORDINAL) return 0;
 
+        // Use numerical rank (not array index) for correct ordinal comparisons with unsorted value arrays.
+        const { valueToRank: ordRankMap } = this.getOrdinalRankMap(ordCatConfig.values);
+
         const possibleVals1 = ordCatConfig.values
-            .map((v, i) => ({ val: v, idx: i }))
-            .filter(v => grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, v.val));
+            .map((v: ValueLabel) => ({ val: v, idx: ordRankMap.get(v)! }))
+            .filter((v: { val: ValueLabel; idx: number }) => grid.isPossible(constraint.item1Cat, constraint.item1Val, constraint.ordinalCat, v.val));
 
         const possibleVals2 = ordCatConfig.values
-            .map((v, i) => ({ val: v, idx: i }))
-            .filter(v => grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, v.val));
+            .map((v: ValueLabel) => ({ val: v, idx: ordRankMap.get(v)! }))
+            .filter((v: { val: ValueLabel; idx: number }) => grid.isPossible(constraint.item2Cat, constraint.item2Val, constraint.ordinalCat, v.val));
 
         if (possibleVals1.length === 0 || possibleVals2.length === 0) return 0;
 
@@ -874,19 +896,22 @@ export class Solver {
         let extremeValue: ValueLabel;
         let isNot = false;
 
+        // Use rank-sorted values so min/max are correct regardless of input array order.
+        const { rankToValue: sortedOrdValues } = this.getOrdinalRankMap(ordinalCatConfig.values);
+
         switch (clue.operator) {
             case SuperlativeOperator.MAX:
-                extremeValue = ordinalCatConfig.values[ordinalCatConfig.values.length - 1];
+                extremeValue = sortedOrdValues[sortedOrdValues.length - 1];
                 break;
             case SuperlativeOperator.MIN:
-                extremeValue = ordinalCatConfig.values[0];
+                extremeValue = sortedOrdValues[0];
                 break;
             case SuperlativeOperator.NOT_MAX:
-                extremeValue = ordinalCatConfig.values[ordinalCatConfig.values.length - 1];
+                extremeValue = sortedOrdValues[sortedOrdValues.length - 1];
                 isNot = true;
                 break;
             case SuperlativeOperator.NOT_MIN:
-                extremeValue = ordinalCatConfig.values[0];
+                extremeValue = sortedOrdValues[0];
                 isNot = true;
                 break;
             default: return 0;

@@ -3,6 +3,10 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.7] - 2026-08-13
+### Fixed
+- **SOLVER CRITICAL**: Fixed a bug where ordinal clue handlers (`applyOrdinalClue`, `applySuperlativeClue`, `applyAdjacencyClue`, `applyBetweenClue`, `applyCrossOrdinalClue`) used raw array indices instead of numerical ranks for comparisons. Shuffled or non-ascending ordinal value arrays (used for theme variety) now resolve with 100% mathematical soundness.
+
 ## [1.3.4] - 2026-01-14
 ### Added
 - **UI/UX**: Auto-completion check! When the grid is fully filled, the app now automatically validates the solution.
