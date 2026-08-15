@@ -1222,16 +1222,10 @@ export class Generator {
         if (isAllowed(ClueType.ADJACENCY)) {
             const ordCategories = categories.filter(c => c.type === CategoryType.ORDINAL);
             for (const ordCat of ordCategories) {
-                // Determine sorted indices within the value map structure
-                // To support 'Adjacency', we need to check if two values are index-neighbors.
-                // We'll iterate all pairs of (Cat1, Val1) and (Cat2, Val2).
-                // Or smarter: Iterate solution directly.
-
-                // For valid Adjacency, the two entities must map to V1 and V2 such that abs(Index(V1) - Index(V2)) == 1.
-                // Ordinal Values in config are sorted (validated).
-                const ordValues = ordCat.values;
-                const valToIndex = new Map<ValueLabel, number>(); // Using ValueLabel as keys directly? Wait, ordCat.values are number.
-                ordValues.forEach((v, i) => valToIndex.set(v, i));
+                // Sort values numerically so adjacency reflects numerical rank order (not raw array position)
+                const sortedVals = stableSortInPlace([...ordCat.values], (a, b) => (a as number) - (b as number));
+                const valToRank = new Map<ValueLabel, number>();
+                sortedVals.forEach((v, rank) => valToRank.set(v, rank));
 
                 // We want to find Subject 1 and Subject 2.
                 // Iterate Categories
@@ -1263,12 +1257,12 @@ export class Generator {
                                 const ordVal1 = map1[ordCat.id];
                                 const ordVal2 = map2[ordCat.id];
 
-                                // Check adjacency by index!
-                                const idx1 = valToIndex.get(ordVal1);
-                                const idx2 = valToIndex.get(ordVal2);
+                                // Check adjacency by numerical rank
+                                const rank1 = valToRank.get(ordVal1);
+                                const rank2 = valToRank.get(ordVal2);
 
-                                if (idx1 !== undefined && idx2 !== undefined) {
-                                    if (Math.abs(idx1 - idx2) === 1) {
+                                if (rank1 !== undefined && rank2 !== undefined) {
+                                    if (Math.abs(rank1 - rank2) === 1) {
                                         clues.push({
                                             type: ClueType.ADJACENCY,
                                             item1Cat: cat1.id, item1Val: val1,
@@ -1814,10 +1808,10 @@ export class Generator {
                 const ordCatConfig = categories.find(c => c.id === adj.ordinalCat);
                 if (!ordCatConfig) return false;
 
-                const vals = ordCatConfig.values;
-                const idx1 = vals.indexOf(v1);
-                const idx2 = vals.indexOf(v2);
-                return Math.abs(idx1 - idx2) === 1;
+                const sortedVals = stableSortInPlace([...ordCatConfig.values], (a: any, b: any) => (a as number) - (b as number));
+                const rank1 = sortedVals.indexOf(v1);
+                const rank2 = sortedVals.indexOf(v2);
+                return Math.abs(rank1 - rank2) === 1;
             }
             case ClueType.CROSS_ORDINAL: {
                 const c = clue as CrossOrdinalClue;

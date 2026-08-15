@@ -3,6 +3,10 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+## [1.3.8] - 2026-08-16
+### Fixed
+- **GENERATOR CRITICAL**: Fixed `ADJACENCY` clue candidate generation (`generateAllPossibleClues`) and consistency checking (`checkClueConsistency`) in `Generator.ts`. They previously mapped ordinal values to raw array indices instead of numerical ranks, generating invalid/contradictory adjacency clues when ordinal value arrays were unsorted.
+
 ## [1.3.7] - 2026-08-13
 ### Fixed
 - **SOLVER CRITICAL**: Fixed a bug where ordinal clue handlers (`applyOrdinalClue`, `applySuperlativeClue`, `applyAdjacencyClue`, `applyBetweenClue`, `applyCrossOrdinalClue`) used raw array indices instead of numerical ranks for comparisons. Shuffled or non-ascending ordinal value arrays (used for theme variety) now resolve with 100% mathematical soundness.
