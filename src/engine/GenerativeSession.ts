@@ -1,4 +1,4 @@
-import { CategoryConfig, ClueGenerationConstraints, Solution, TargetFact, ValueLabel, ClueType, BinaryOperator } from '../types';
+import { CategoryConfig, ClueGenerationConstraints, Solution, TargetFact, ValueLabel, ClueType, BinaryOperator, RedHerringOptions } from '../types';
 import { ConfigurationError } from "../errors";
 import { Clue } from './Clue';
 import { LogicGrid } from './LogicGrid';
@@ -440,5 +440,75 @@ export class GenerativeSession {
         add(clue.targetVal);
 
         return values;
+    }
+
+    /**
+     * Retrieves all viable red herrings (falsy clues) that are contradicted by the current session's proof chain
+     * and do not create 1-to-1 direct clashes with any selected clue.
+     */
+    public getAvailableRedHerrings(options?: RedHerringOptions): Clue[] {
+        if (this.proofChain.length < 2) return [];
+
+        const candidateFalseClues = this.generator.generateCandidateFalseClues(
+            this.categories,
+            options,
+            this.reverseSolution,
+            this.valueMap,
+            this.solution
+        );
+
+        const minDepth = options?.minContradictionDepth ?? 2;
+        const available: Clue[] = [];
+
+        for (const candidate of candidateFalseClues) {
+            // Must be contradicted by current session grid
+            if (!this.solver.isClueContradicted(this.grid, candidate)) {
+                continue;
+            }
+
+            // Stealth check: Must not clash in isolation with any single clue in proofChain
+            let directClash = false;
+            if (minDepth >= 2) {
+                for (const trueClue of this.proofChain) {
+                    const singleGrid = new LogicGrid(this.categories);
+                    this.solver.applyClue(singleGrid, trueClue);
+                    if (this.solver.isClueContradicted(singleGrid, candidate)) {
+                        directClash = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!directClash) {
+                available.push(candidate);
+            }
+        }
+
+        return available;
+    }
+
+    /**
+     * Generates a single red herring clue for the current session state.
+     * Returns null if no viable red herrings exist for the current proof chain.
+     */
+    public generateRedHerring(options?: RedHerringOptions): Clue | null {
+        const candidates = this.getAvailableRedHerrings(options);
+        if (candidates.length === 0) {
+            return null;
+        }
+
+        try {
+            const redHerrings = this.generator.generateRedHerrings(
+                this.categories,
+                this.proofChain,
+                { ...options, count: 1 },
+                this.reverseSolution,
+                this.valueMap,
+                this.solution
+            );
+            return redHerrings[0] ?? null;
+        } catch {
+            return null;
+        }
     }
 }

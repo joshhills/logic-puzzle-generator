@@ -1,4 +1,4 @@
-import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact, ClueGenerationConstraints, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, CrossOrdinalOperator } from '../types';
+import { CategoryConfig, CategoryType, ValueLabel, Solution, TargetFact, ClueGenerationConstraints, ClueType, BinaryOperator, OrdinalOperator, SuperlativeOperator, UnaryFilter, CrossOrdinalOperator, RedHerringOptions } from '../types';
 import { ConfigurationError } from '../errors';
 import { Clue, BinaryClue, OrdinalClue, SuperlativeClue, UnaryClue, CrossOrdinalClue, BetweenClue, AdjacencyClue, DisjunctionClue, ArithmeticClue } from './Clue';
 import { LogicGrid } from './LogicGrid';
@@ -6,6 +6,35 @@ import { Solver } from './Solver';
 import { GenerativeSession } from './GenerativeSession';
 import { getRecommendedBounds } from './DifficultyBounds';
 import { stableSortInPlace, seededShuffleInPlace } from './determinism';
+
+/**
+ * Computes the guaranteed safe maximum number of mutually compatible red herrings
+ * supported by a category configuration without risking ambiguous (dual-universe) solutions.
+ *
+ * @param categories - The category configurations.
+ * @returns Maximum safe red herring count (0 if the configuration cannot support red herrings).
+ */
+export function getSafeMaxRedHerrings(categories: CategoryConfig[]): number {
+    const numCats = categories.length;
+    const numItems = categories[0]?.values.length ?? 0;
+    const hasOrdinal = categories.some(c => c.type === CategoryType.ORDINAL);
+
+    // 1. Minimum layout requirements
+    if (numCats < 2 || numItems < 3) return 0;
+    if (!hasOrdinal && (numCats < 3 || numItems < 4)) return 0;
+
+    // 2. 2-Category Ordinal Puzzles
+    if (numCats === 2) {
+        return numItems >= 4 ? 2 : 1;
+    }
+
+    // 3. Multi-Category Puzzles (3+ Categories)
+    if (hasOrdinal) {
+        return Math.min(numItems, numCats + 1);
+    } else {
+        return Math.min(numItems - 1, numCats);
+    }
+}
 
 /**
  * Represents a single step in the logical deduction path.
@@ -23,9 +52,13 @@ export interface ProofStep {
 export interface Puzzle {
     /** The solution grid (Category -> Value -> Corresponding Value). */
     solution: Solution;
-    /** The list of clues needed to solve the puzzle, in no particular order. */
+    /** The list of all clues presented to the solver. If red herrings were requested, includes both valid clues and red herrings. */
     clues: Clue[];
-    /** An ordered list of clues that demonstrates a step-by-step logical solution. */
+    /** The verified truthy clues that uniquely solve the puzzle. */
+    validClues: Clue[];
+    /** The generated red herring clues that are logically contradicted by the valid clues. */
+    redHerrings: Clue[];
+    /** An ordered list of clues that demonstrates a step-by-step logical solution for the valid clues. */
     proofChain: ProofStep[];
     /** The configuration used to generate this puzzle. */
     categories: CategoryConfig[];
@@ -58,6 +91,12 @@ export interface GeneratorOptions {
      * Constraints to filter the types of clues generated.
      */
     constraints?: ClueGenerationConstraints;
+    /**
+     * Optional red herring (fake clues) configuration.
+     * Can be specified as a number (e.g. 1) or a RedHerringOptions object.
+     * Default: 0 (disabled).
+     */
+    redHerrings?: number | RedHerringOptions;
     /**
      * Callback for trace logs execution details.
      */
@@ -159,8 +198,34 @@ export class Generator {
         const finalTarget = target || this.generateRandomTarget(categories);
         this.validateTarget(categories, finalTarget);
 
+        // 3. Validate Red Herrings
+        const redHerringConfig = typeof config.redHerrings === 'number'
+            ? { count: config.redHerrings }
+            : config.redHerrings;
+        const redHerringCount = redHerringConfig?.count ?? 0;
 
-        // 3. Constraints
+        if (redHerringCount < 0) {
+            throw new ConfigurationError('Red herring count cannot be negative.');
+        }
+
+        if (redHerringCount > 0) {
+            const safeMax = getSafeMaxRedHerrings(categories);
+            if (safeMax === 0) {
+                throw new ConfigurationError(
+                    `Invalid Configuration: Red Herrings require either at least 1 Ordinal category (>= 3 items) ` +
+                    `or at least 3 categories with >= 4 items each to guarantee unambiguous, non-trivial puzzles.`
+                );
+            }
+            if (redHerringCount > safeMax) {
+                throw new ConfigurationError(
+                    `Invalid Configuration: Requested ${redHerringCount} red herrings, ` +
+                    `but this category layout guarantees a maximum of ${safeMax}. ` +
+                    `Please add more categories/items or reduce the red herring count.`
+                );
+            }
+        }
+
+        // 4. Constraints
         // Check for impossible requests
         const constraints = config.constraints;
         if (constraints?.allowedClueTypes) {
@@ -185,7 +250,16 @@ export class Generator {
             }
         }
 
-        return this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints, onTrace: config.onTrace });
+        const puzzle = this.internalGenerate(categories, finalTarget, 'standard', { maxCandidates, targetClueCount, timeoutMs, constraints: config.constraints, onTrace: config.onTrace });
+
+        // Handle Red Herrings if requested
+        if (redHerringCount > 0) {
+            const redHerrings = this.generateRedHerrings(categories, puzzle.validClues, redHerringConfig);
+            puzzle.redHerrings = redHerrings;
+            puzzle.clues = seededShuffleInPlace([...puzzle.validClues, ...redHerrings], this.random);
+        }
+
+        return puzzle;
     }
 
     /**
@@ -608,9 +682,13 @@ export class Generator {
             (step.clue as any).reasons = result.reasons;
         }
 
+        const validClues = proofChain.map(p => p.clue);
+
         return {
             solution: this.solution,
-            clues: proofChain.map(p => p.clue),
+            clues: validClues,
+            validClues,
+            redHerrings: [],
             proofChain,
             categories,
             targetFact: target,
@@ -874,9 +952,12 @@ export class Generator {
 
         const result = search(logicGrid, [], [...availableClues]);
         if (result) {
+            const validClues = result.map(p => p.clue);
             let puzzle = {
                 solution: this.solution,
-                clues: result.map(p => p.clue),
+                clues: validClues,
+                validClues,
+                redHerrings: [],
                 proofChain: result,
                 categories,
                 targetFact: target,
@@ -1866,5 +1947,305 @@ export class Generator {
             }
         }
         return true;
+    }
+
+    /**
+     * Generates all possible candidate false clues (clues that contradict the ground truth solution).
+     */
+    public generateCandidateFalseClues(
+        categories: CategoryConfig[],
+        constraints?: ClueGenerationConstraints | RedHerringOptions,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>> = this.reverseSolution,
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>> = this.valueMap,
+        solution: Solution = this.solution
+    ): Clue[] {
+        const falseClues: Clue[] = [];
+        const isAllowed = (type: ClueType) => !constraints?.allowedClueTypes || constraints.allowedClueTypes.includes(type);
+
+        // 1. Binary Clues
+        if (isAllowed(ClueType.BINARY)) {
+            for (const cat1 of categories) {
+                for (const val1 of cat1.values) {
+                    for (const cat2 of categories) {
+                        if (cat1.id >= cat2.id) continue;
+                        for (const val2 of cat2.values) {
+                            for (const op of [BinaryOperator.IS, BinaryOperator.IS_NOT]) {
+                                const clue: BinaryClue = {
+                                    type: ClueType.BINARY,
+                                    operator: op,
+                                    cat1: cat1.id,
+                                    val1: val1,
+                                    cat2: cat2.id,
+                                    val2: val2
+                                };
+                                if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                    falseClues.push(clue);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Ordinal-dependent Clues
+        const ordCategories = categories.filter(c => c.type === CategoryType.ORDINAL);
+        for (const ordCat of ordCategories) {
+            // Superlatives
+            if (isAllowed(ClueType.SUPERLATIVE)) {
+                for (const targetCat of categories) {
+                    if (targetCat.id === ordCat.id) continue;
+                    for (const targetVal of targetCat.values) {
+                        for (const op of [SuperlativeOperator.MIN, SuperlativeOperator.MAX, SuperlativeOperator.NOT_MIN, SuperlativeOperator.NOT_MAX]) {
+                            const clue: SuperlativeClue = {
+                                type: ClueType.SUPERLATIVE,
+                                operator: op,
+                                targetCat: targetCat.id,
+                                targetVal: targetVal,
+                                ordinalCat: ordCat.id
+                            };
+                            if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                falseClues.push(clue);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Ordinals
+            if (isAllowed(ClueType.ORDINAL)) {
+                for (const item1Cat of categories) {
+                    if (item1Cat.id === ordCat.id) continue;
+                    for (const item2Cat of categories) {
+                        if (item2Cat.id === ordCat.id) continue;
+                        for (const item1Val of item1Cat.values) {
+                            for (const item2Val of item2Cat.values) {
+                                if (item1Cat.id === item2Cat.id && item1Val === item2Val) continue;
+                                for (const op of [OrdinalOperator.GREATER_THAN, OrdinalOperator.LESS_THAN, OrdinalOperator.NOT_GREATER_THAN, OrdinalOperator.NOT_LESS_THAN]) {
+                                    const clue: OrdinalClue = {
+                                        type: ClueType.ORDINAL,
+                                        operator: op,
+                                        item1Cat: item1Cat.id,
+                                        item1Val: item1Val,
+                                        item2Cat: item2Cat.id,
+                                        item2Val: item2Val,
+                                        ordinalCat: ordCat.id
+                                    };
+                                    if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                        falseClues.push(clue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Between
+            if (isAllowed(ClueType.BETWEEN)) {
+                for (const targetCat of categories) {
+                    if (targetCat.id === ordCat.id) continue;
+                    for (const targetVal of targetCat.values) {
+                        for (const otherCat of categories) {
+                            if (otherCat.id === ordCat.id) continue;
+                            for (const lowerVal of otherCat.values) {
+                                for (const upperVal of otherCat.values) {
+                                    if (lowerVal === upperVal) continue;
+                                    const clue: BetweenClue = {
+                                        type: ClueType.BETWEEN,
+                                        targetCat: targetCat.id,
+                                        targetVal: targetVal,
+                                        lowerCat: otherCat.id,
+                                        lowerVal: lowerVal,
+                                        upperCat: otherCat.id,
+                                        upperVal: upperVal,
+                                        ordinalCat: ordCat.id
+                                    };
+                                    if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                        falseClues.push(clue);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Adjacency
+            if (isAllowed(ClueType.ADJACENCY)) {
+                for (const cat1 of categories) {
+                    if (cat1.id === ordCat.id) continue;
+                    for (const cat2 of categories) {
+                        if (cat2.id === ordCat.id) continue;
+                        const sameCat = cat1.id === cat2.id;
+                        for (let i = 0; i < cat1.values.length; i++) {
+                            const val1 = cat1.values[i];
+                            const startJ = sameCat ? i + 1 : 0;
+                            for (let j = startJ; j < cat2.values.length; j++) {
+                                const val2 = cat2.values[j];
+                                const clue: AdjacencyClue = {
+                                    type: ClueType.ADJACENCY,
+                                    item1Cat: cat1.id,
+                                    item1Val: val1,
+                                    item2Cat: cat2.id,
+                                    item2Val: val2,
+                                    ordinalCat: ordCat.id
+                                };
+                                if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                    falseClues.push(clue);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Unary
+            if (isAllowed(ClueType.UNARY)) {
+                if (ordCat.values.every(v => typeof v === 'number')) {
+                    for (const targetCat of categories) {
+                        if (targetCat.id === ordCat.id) continue;
+                        for (const targetVal of targetCat.values) {
+                            for (const filter of [UnaryFilter.IS_ODD, UnaryFilter.IS_EVEN]) {
+                                const clue: UnaryClue = {
+                                    type: ClueType.UNARY,
+                                    filter: filter,
+                                    targetCat: targetCat.id,
+                                    targetVal: targetVal,
+                                    ordinalCat: ordCat.id
+                                };
+                                if (!this.checkClueConsistency(clue, solution, reverseSolution, valueMap, categories)) {
+                                    falseClues.push(clue);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return falseClues;
+    }
+
+    /**
+     * Generates a verified list of K stealthy, unambiguous, mutually compatible red herrings for a given puzzle.
+     *
+     * @param categories - The puzzle category configurations.
+     * @param validClues - The true clues that form the valid solution.
+     * @param options - Red herring options.
+     * @returns An array of generated red herring clues.
+     */
+    public generateRedHerrings(
+        categories: CategoryConfig[],
+        validClues: Clue[],
+        options?: RedHerringOptions,
+        reverseSolution: Map<string, Map<ValueLabel, ValueLabel>> = this.reverseSolution,
+        valueMap: Map<ValueLabel, Record<string, ValueLabel>> = this.valueMap,
+        solution: Solution = this.solution
+    ): Clue[] {
+        const count = options?.count ?? 1;
+        const minDepth = options?.minContradictionDepth ?? 2;
+        if (count <= 0) return [];
+
+        const candidateFalseClues = this.generateCandidateFalseClues(categories, options, reverseSolution, valueMap, solution);
+
+        // 1. Stealth Filter (No direct 1-to-1 pairwise clash with any single valid clue)
+        const stealthyCandidates: Clue[] = [];
+        for (const candidate of candidateFalseClues) {
+            let directClash = false;
+            if (minDepth >= 2) {
+                for (const trueClue of validClues) {
+                    const singleGrid = new LogicGrid(categories);
+                    this.solver.applyClue(singleGrid, trueClue);
+                    if (this.solver.isClueContradicted(singleGrid, candidate)) {
+                        directClash = true;
+                        break;
+                    }
+                }
+            }
+            if (!directClash) {
+                stealthyCandidates.push(candidate);
+            }
+        }
+
+        // Shuffle stealthy candidates deterministically using seeded PRNG
+        const shuffledCandidates = seededShuffleInPlace([...stealthyCandidates], this.random);
+
+        // 2. Filter for Unambiguity & Mutual Compatibility
+        const selectedRedHerrings: Clue[] = [];
+
+        for (const candidate of shuffledCandidates) {
+            if (selectedRedHerrings.length >= count) break;
+
+            // Mutual compatibility check against already selected red herrings
+            let mutuallyCompatible = true;
+            for (const prev of selectedRedHerrings) {
+                const grid = new LogicGrid(categories);
+                this.solver.applyClue(grid, prev);
+                if (this.solver.isClueContradicted(grid, candidate)) {
+                    mutuallyCompatible = false;
+                    break;
+                }
+            }
+            if (!mutuallyCompatible) continue;
+
+            // Unambiguity check: Verify that omitting the red herrings is the ONLY size-N subset that solves the puzzle
+            const candidateSet = [...selectedRedHerrings, candidate];
+            const allClues = [...validClues, ...candidateSet];
+
+            let hasAlternativeSolve = false;
+
+            // Check single omissions of a valid clue
+            for (let omit = 0; omit < validClues.length; omit++) {
+                const subset = allClues.filter((_, idx) => idx !== omit);
+                const grid = new LogicGrid(categories);
+                let contradiction = false;
+                let newDeductions = 0;
+                do {
+                    newDeductions = 0;
+                    for (const c of subset) {
+                        const res = this.solver.applyClue(grid, c);
+                        newDeductions += res.deductions;
+                        if (!grid.isValid()) {
+                            contradiction = true;
+                            break;
+                        }
+                    }
+                    if (contradiction) break;
+                } while (newDeductions > 0);
+
+                if (!contradiction) {
+                    // Check if it reached a complete solve
+                    let fullySolved = true;
+                    for (const c1 of categories) {
+                        for (const v1 of c1.values) {
+                            for (const c2 of categories) {
+                                if (c1.id >= c2.id) continue;
+                                if (grid.getPossibilitiesCount(c1.id, v1, c2.id) !== 1) {
+                                    fullySolved = false;
+                                }
+                            }
+                        }
+                    }
+                    if (fullySolved) {
+                        hasAlternativeSolve = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasAlternativeSolve) {
+                selectedRedHerrings.push(candidate);
+            }
+        }
+
+        if (selectedRedHerrings.length < count) {
+            throw new ConfigurationError(
+                `Could not generate ${count} mutually compatible red herrings for this puzzle. ` +
+                `Found ${selectedRedHerrings.length}. Please reduce red herring count or expand categories.`
+            );
+        }
+
+        return selectedRedHerrings;
     }
 }

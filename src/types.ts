@@ -132,3 +132,25 @@ export interface DeductionReason {
     description: string;
     cells?: { cat: string, val: ValueLabel }[];
 }
+
+/**
+ * Configuration options for generating red herrings (falsy clues).
+ */
+export interface RedHerringOptions {
+    /**
+     * Number of red herrings to generate.
+     * Default: 1 (when RedHerringOptions object is provided).
+     */
+    count?: number;
+    /**
+     * Minimum number of proof-chain steps required before the red herring can be contradicted.
+     * Higher values ensure the red herring is more subtle and requires deeper deduction.
+     * Default: 2 (prevents trivial 1-to-1 pairwise clashes).
+     */
+    minContradictionDepth?: number;
+    /**
+     * If provided, red herrings will only be generated using these clue types.
+     */
+    allowedClueTypes?: ClueType[];
+}
+

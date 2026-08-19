@@ -963,7 +963,11 @@ export class Solver {
         return 0; // Ambiguous
     }
 
-    private isClueContradicted(grid: LogicGrid, clue: Clue): boolean {
+    /**
+     * Checks if a clue is contradicted by the current grid state.
+     * A clue is contradicted if applying it produces an invalid grid state (e.g. 0 possibilities in any cell).
+     */
+    public isClueContradicted(grid: LogicGrid, clue: Clue): boolean {
         // We clone the grid and apply the clue.
         // If the resulting grid is invalid (any cell has 0 possibilities), then the clue is contradicted.
         const trialGrid = grid.clone();

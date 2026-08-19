@@ -31,6 +31,7 @@ The intention is for this library to empower narrative designers to create myste
     - **Arithmetic**: Equality of differences (|A - B| = |C - D|). Requires an ordinal category.
 - **Complexity Variance**: The generator intelligently varies clue complexity to create a balanced puzzle flow.
 - **Clue Constraints**: Filter which clue types are allowed (e.g., disable Ordinal clues) for custom difficulty.
+- **Red Herrings (Fake Clues)**: Generate optional falsy clues that players must detect and discard. Red herrings are mathematically guaranteed to be **stealthy** (requiring 2+ deduction steps to expose, with no 1-to-1 giveaways) and **unambiguous** (leaving exactly 1 valid solution universe).
 - **Proof Chain**: Generates a full step-by-step solution path ("Proof Chain").
 - **Type-Safe**: Written in TypeScript with comprehensive type definitions.
 - **Configurable**: Define your own categories, values, and constraints.
@@ -39,6 +40,7 @@ The intention is for this library to empower narrative designers to create myste
     - **Target Selection**: Which fact serves as the mystery focus.
     - **Clue Template Variation**: Randomization of names, values, and sentence structures.
     - **Search & Scoring**: The order in which candidates are evaluated.
+    - **Red Herring Generation**: Deterministic selection and placement of fake clues.
 - **Cross-Engine & Cross-Platform Determinism**: Guaranteed identical puzzle generation across different platforms and JS runtimes (Node V8, browsers, and React Native Hermes) by utilizing a custom stable-sort polyfill and an engine-agnostic Fisher-Yates seeded shuffle.
 
 ## Installation
@@ -186,6 +188,54 @@ The generator produces four types of clues:
 6.  **Between**: Range. "Alice is older than Bob but younger than Charlie".
 7.  **Unary**: Properties. "The person eating Chips is an even age".
 
+### Red Herrings (Fake Clues)
+
+You can generate puzzles with one or more "red herring" clues—deliberately false statements that the solver must identify and discard.
+
+```typescript
+// Generate a puzzle with 1 fake clue (default: 0)
+const puzzle = generator.generatePuzzle(categories, targetFact, {
+    redHerrings: 1
+});
+
+console.log(puzzle.clues.length);       // e.g. 5 (4 true clues + 1 red herring, shuffled)
+console.log(puzzle.validClues.length);  // 4 (the truthy clues needed to solve the puzzle)
+console.log(puzzle.redHerrings.length); // 1 (the falsy clue(s))
+```
+
+#### Advanced Red Herring Configuration:
+```typescript
+const puzzle = generator.generatePuzzle(categories, targetFact, {
+    redHerrings: {
+        count: 2,                     // Number of red herrings to generate
+        minContradictionDepth: 2,     // Min deduction steps before contradicted (default: 2)
+        allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL] // Restrict clue types
+    }
+});
+```
+
+#### Guarantees & Mathematical Foundations:
+
+1. **Stealth (Contradiction Depth $\ge 2$):**
+   - A fake clue is never allowed to directly contradict any *single* valid clue in isolation (e.g. "Alice is Red" vs "Alice is Blue").
+   - Every red herring is compatible with each valid clue independently. Solvers must chain together at least 2 deduction steps before exposing the contradiction, preventing trivial 50/50 giveaways.
+
+2. **Unambiguity (Single True Universe):**
+   - The generator mathematically verifies that omitting the $K$ red herrings from the presented clue list is the **only** size-$N$ subset of clues that yields a consistent, contradiction-free completed logic grid. No dual-universe or alternative solutions can exist.
+
+3. **Mutual Compatibility ($K \ge 2$ via Derangements):**
+   - When generating multiple red herrings ($K \ge 2$), the generator ensures that no two fake clues contradict each other on a blank grid.
+   - Grounded in graph theory: for a category pair with $N$ items, a cyclic derangement (e.g., shifting matches by $+1$) yields $N$ completely false statements that are 100% mutually compatible with one another. Across $\binom{C}{2}$ category pairs, this guarantees an abundant pool of independent false statements.
+
+4. **Guaranteed Safe Maximums (`getSafeMaxRedHerrings`):**
+   - Use `getSafeMaxRedHerrings(categories)` to query the maximum number of red herrings guaranteed to succeed on every seed without runtime failure.
+   - Example bounds:
+     - 2-Category Ordinal ($N=4$): Safe Max $K = 2$.
+     - 3-Category Nominal ($N=4$): Safe Max $K = 3$.
+     - 3-Category Ordinal ($N=4$): Safe Max $K = 4$.
+     - 4-Category Multi-Ordinal ($N \ge 4$): Safe Max $K \ge 5$.
+   - 2-Category pure Nominal puzzles cannot support unambiguous red herrings due to dual-universe symmetries, and will report `safeMax = 0`.
+
 ### The Proof Chain
 The generator solves the puzzle as it builds it. The `puzzle.proofChain` array contains the optimal order of clues to solve the grid. This is useful for building hint systems or verify difficulty.
 
@@ -199,6 +249,7 @@ The main class. Use `new Generator(seed)` to initialize.
     - `options.targetClueCount`: Attempt to find exact solution length. Avoids early termination.
     - `options.maxCandidates`: Performance tuning (default 50). Limits the heuristic search width.
     - `options.timeoutMs`: Abort generation if it exceeds this limit (default 10000ms).
+    - `options.redHerrings`: Optional red herring count (e.g. `1`) or `RedHerringOptions` configuration. Default: `0` (disabled).
     - `options.constraints`: Filter/control generated clues.
         - `allowedClueTypes`: `ClueType[]`.
         - `includeSubjects`: `string[]` (New in v1.1.X). Restrict to clues involving these values.
@@ -206,10 +257,11 @@ The main class. Use `new Generator(seed)` to initialize.
         - `minDeductions`: `number` (New in v1.1.X). Min new info required (default 1). Set to 0 for filler.
         - `maxDeductions`: `number`. Max new info allowed. Set to 0 to force redundant clues.
     - `options.onTrace`: **(Debug)** Callback `(msg: string) => void`. Receives real-time logs about the generation process.
-- `generatePuzzleAsync(...)`: **New in v1.1.0**. Non-blocking version of `generatePuzzle`. Returns `Promise<Puzzle>`.
+- `generatePuzzleAsync(...)`: Non-blocking version of `generatePuzzle`. Returns `Promise<Puzzle>`.
 - `getClueCountBounds(categories, target)`: Returns plausible Min/Max clue counts.
-- `getClueCountBoundsAsync(...)`: **New in v1.1.0**. Non-blocking version. Returns `Promise<{ min, max }>`.
-- `startSession(categories, target?)`: [Beta] Starts a `GenerativeSession` for step-by-step interactive generation.
+- `getClueCountBoundsAsync(...)`: Non-blocking version. Returns `Promise<{ min, max }>`.
+- `getSafeMaxRedHerrings(categories)`: Returns the guaranteed safe maximum number of red herrings for the category layout.
+- `startSession(categories, target?)`: Starts a `GenerativeSession` for step-by-step interactive generation.
 
 #### Advanced / Internal API
 - `calculateClueScore(grid, target, deductions, clue, ...)`: **(Extensible)** detailed heuristic scoring for clue selection.
@@ -289,14 +341,42 @@ Returns `{ success: boolean, clue: Clue | null }`. Undoes the last step.
 - Returns `-1` if the target is not yet solved.
 - This is dynamic: removing or reordering clues will change this index, allowing you to find the exact "Eureka!" moment in the chain.
 
+### `session.getAvailableRedHerrings(options?: RedHerringOptions)`
+Returns all viable red herring candidate clues contradicted by the current session's proof chain (depth $\ge 2$).
+
+### `session.generateRedHerring(options?: RedHerringOptions)`
+Generates a verified, single red herring clue for the current session state (or `null` if none are available yet).
+
 ### `session.getNextClueAsync(constraints?)`
-**New in v1.1.1**. Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
+Non-blocking version. Returns `Promise<{ clue, remaining, solved }>`.
 - `getGrid()`: Returns the current `LogicGrid` state.
 - `getSolution()`: Returns the target `Solution` map.
 - `getProofChain()`: Returns the list of `Clue`s applied so far.
 - `getValueMap()`: Returns the optimized internal value categorization map.
 
 ### Data Types
+
+#### `Puzzle`
+```typescript
+interface Puzzle {
+  solution: Solution;
+  clues: Clue[];          // All presented clues (valid + red herrings, shuffled)
+  validClues: Clue[];     // The verified truthy clues that solve the puzzle
+  redHerrings: Clue[];    // The generated fake clues (empty if none requested)
+  proofChain: ProofStep[];
+  categories: CategoryConfig[];
+  targetFact: TargetFact;
+}
+```
+
+#### `RedHerringOptions`
+```typescript
+interface RedHerringOptions {
+  count?: number;                 // Number of red herrings to generate (default: 1)
+  minContradictionDepth?: number; // Minimum deduction steps before contradicted (default: 2)
+  allowedClueTypes?: ClueType[];  // Optional clue type restriction
+}
+```
 
 #### `CategoryConfig`
 Configuration for a single category.
@@ -319,7 +399,7 @@ interface TargetFact {
 ```
 
 #### `ClueType`
-Enum for available clue logic: `BINARY` (Direct), `ORDINAL` (Comparison), `CROSS_ORDINAL` (Relative), `SUPERLATIVE` (Min/Max), `UNARY` (Properties).
+Enum for available clue logic: `BINARY` (Direct), `ORDINAL` (Comparison), `CROSS_ORDINAL` (Relative), `SUPERLATIVE` (Min/Max), `UNARY` (Properties), `BETWEEN`, `ADJACENCY`, `OR`, `ARITHMETIC`.
 
 ## Interactive Generation (Builder Mode)
 
@@ -332,14 +412,11 @@ let solved = false;
 while (!solved) {
     // 1. Get the next best clue (optionally force a specific type)
     const result = session.getNextClue({ 
-    // 1. Get the next best clue (optionally force a specific type)
-    const result = session.getNextClue({ 
         allowedClueTypes: [ClueType.BINARY, ClueType.ORDINAL],
         includeSubjects: ['Mustard', 'Plum'],     // Only clues about these entities
         excludeSubjects: ['Revolver'],            // No clues dealing with Revolvers
         minDeductions: 0,                         // Allow "useless" clues (flavor text)
         maxDeductions: 0                          // STRICTLY "useless" clues (0 deductions)
-    });
     });
 
     if (result.clue) {
@@ -350,6 +427,12 @@ while (!solved) {
         break;
     }
 }
+
+// 2. Optionally inject a red herring at the end of the session
+const fakeClue = session.generateRedHerring();
+if (fakeClue) {
+    console.log("Red Herring Clue:", fakeClue);
+}
 ```
 
 ## Error Handling
@@ -359,7 +442,7 @@ The library uses specific error types to help you debug configuration issues.
 | Method | Throws | Reason |
 | :--- | :--- | :--- |
 | `new Generator()` | `Error` | If `seed` is invalid (NaN). |
-| `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> - `ORDINAL` category contains duplicate values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
+| `generatePuzzle()` | `ConfigurationError` | **Configuration**: <br> - Less than 2 categories. <br> - `maxCandidates` < 1. <br> - `targetClueCount` < 1. <br> **Red Herrings**: <br> - Requested red herrings on unsupported 2-category nominal layout. <br> - Requested red herrings exceed `getSafeMaxRedHerrings(categories)`. <br> - Negative red herring count. <br> **Target Fact**: <br> Refers to non-existent category/value or uses same category twice. <br> **Constraints**: <br> - Ambiguous (Weak) types only. <br> - Requesting `ORDINAL` without Ordinal categories. <br> - Requesting `CROSS_ORDINAL` with < 2 Ordinal categories. <br> - Requesting `UNARY` (Even/Odd) without mixed numeric values. <br> **Data**: <br> - `ORDINAL` category contains non-numeric values. <br> - `ORDINAL` category contains duplicate values. <br> **Runtime**: <br> - Could not find solution with exact `targetClueCount` within timeout. |
 | `startSession()` | `ConfigurationError` | - Less than 2 categories. |
 | `LogicGrid()` | `ConfigurationError` | - Duplicate Category IDs <br> - Duplicate Values within a category <br> - Mismatched value counts (all categories must be same size). |
 
